@@ -1,0 +1,45 @@
+[
+  {
+    "id": "d013b71b-a54e-4d1b-a0a9-17ed8ef3be28",
+    "username": "tester1794360149",
+    "salt": "5e0282cf1480557636810a2e8ace2640",
+    "passwordHash": "afc2d3d5046b2329eaf1a2cd970d4dd7e2e8f17c3f943bc1033bac680e9c1dd3",
+    "favorites": [
+      "LP-HORN-0015"
+    ],
+    "loginCount": 1,
+    "createdAt": "2026-05-24T22:35:29.377Z",
+    "lastLoginAt": "2026-05-24T22:35:29.379Z",
+    "tokens": [
+      "luma-ddb89adb-b27b-42e0-a470-50aed106e86e"
+    ]
+  },
+  {
+    "id": "8295f62d-38cc-4174-8901-9b7855e2f1f4",
+    "username": "inspect1693707710",
+    "salt": "834b065977c21488f4cba3f6078c253a",
+    "passwordHash": "57e994300581e7e0d9934df20270eea123572d33bb6a58f4f5b2c06d9ce4d6b7",
+    "favorites": [],
+    "loginCount": 1,
+    "createdAt": "2026-05-24T22:35:38.751Z",
+    "lastLoginAt": "2026-05-24T22:35:38.751Z",
+    "tokens": [
+      "luma-fdb1fcc7-0930-49c8-953b-f5ab5be2ab5f"
+    ]
+  },
+  {
+    "id": "cef28e06-b876-417e-8d87-f3804aa1b36c",
+    "username": "clientcheck1515149658",
+    "salt": "a3ece3e3f891b8a7ed1674b83bd063a6",
+    "passwordHash": "340d90992fa04beb935293cff186def097587cf042d2df202d0b60e0458298f2",
+    "favorites": [
+      "LP-HORN-0015"
+    ],
+    "loginCount": 1,
+    "createdAt": "2026-05-24T22:36:45.351Z",
+    "lastLoginAt": "2026-05-24T22:36:45.351Z",
+    "tokens": [
+      "luma-5e64ad18-b80f-4717-9fc0-e1877f165951"
+    ]
+  }
+]

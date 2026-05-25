@@ -31,3 +31,25 @@ input {
 #root {
   min-height: 100vh;
 }
+
+.listing-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.6) transparent;
+}
+
+.listing-scrollbar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.listing-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.listing-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.45);
+  border-radius: 9999px;
+}
+
+.listing-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.7);
+}
