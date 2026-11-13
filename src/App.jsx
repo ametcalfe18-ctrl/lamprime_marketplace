@@ -1,9 +1,31 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, CreditCard, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { marketplaceItems as items } from "./data/items";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, "");
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+async function supabaseRequest(path, { method = "GET", body, token } = {}) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("Supabase configuration missing. Check Vercel settings and redeploy.");
+  const response = await fetch(`${SUPABASE_URL}${path}`, {
+    method,
+    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.msg || data.error_description || data.message || data.error || "Account request failed");
+  return data;
+}
+
+function localFavorites(userId) {
+  try {
+    const result = JSON.parse(localStorage.getItem(`luma-prime-favorites-${userId}`) || "[]");
+    return Array.isArray(result) ? result : [];
+  } catch { return []; }
+}
+
 
 function Badge({ children, className = "" }) {
   return <span className={`rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 ${className}`}>{children}</span>;
@@ -236,7 +258,7 @@ export default function LumaPrimeMarketplace() {
   const [selectedId, setSelectedId] = useState(items[0].id);
   const [query, setQuery] = useState("");
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ username: "", password: "", confirmPassword: "" });
+  const [authForm, setAuthForm] = useState({ username: "", email: "", password: "", confirmPassword: "" });
   const [sessionToken, setSessionToken] = useState(() => (typeof window === "undefined" ? null : localStorage.getItem("luma-prime-token")));
   const [profile, setProfile] = useState(null);
   const [favorites, setFavorites] = useState([]);
@@ -619,87 +641,62 @@ export default function LumaPrimeMarketplace() {
       setFavorites([]);
       return;
     }
-
-    let isMounted = true;
-
+    let active = true;
     async function loadProfile() {
       try {
-        const response = await apiRequest("/api/player/me", {
-          headers: {
-            Authorization: `Bearer ${sessionToken}`
-          }
+        const user = await supabaseRequest("/auth/v1/user", { token: sessionToken });
+        const rows = await supabaseRequest(`/rest/v1/player_profiles?id=eq.${encodeURIComponent(user.id)}&select=id,display_name,created_at,lumina_balance`, { token: sessionToken });
+        if (!active) return;
+        const row = rows[0];
+        setProfile({
+          id: user.id,
+          username: row?.display_name || user.user_metadata?.display_name || "Adventurer",
+          createdAt: row?.created_at || user.created_at,
+          lastLoginAt: user.last_sign_in_at,
+          loginCount: 1
         });
-
-        if (!isMounted) {
-          return;
-        }
-
-        const { player, favorites: nextFavorites } = normalizeSessionResponse(response);
-
-        setProfile(player);
-        setFavorites(nextFavorites);
-        setStatus({ message: `Welcome back, ${player?.username || "player"}.`, tone: "success" });
+        setFavorites(localFavorites(user.id));
+        setStatus({ message: "Signed in successfully.", tone: "success" });
       } catch (error) {
-        if (!isMounted) {
-          return;
-        }
-
+        if (!active) return;
         localStorage.removeItem("luma-prime-token");
         setSessionToken(null);
         setProfile(null);
         setFavorites([]);
-        setStatus({ message: "Session expired. Log in again to restore your dashboard.", tone: "warning" });
+        setStatus({ message: `Please log in again: ${error.message}`, tone: "warning" });
       }
     }
-
     loadProfile();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { active = false; };
   }, [sessionToken]);
 
   const handleAuthSubmit = async (event) => {
     event.preventDefault();
     setLoadingAuth(true);
     setStatus({ message: "", tone: "info" });
-
     const username = authForm.username.trim();
-    const password = authForm.password.trim();
-
-    if (!username || !password) {
-      setStatus({ message: "Enter a username and password to continue.", tone: "warning" });
-      setLoadingAuth(false);
-      return;
-    }
-
-    if (authMode === "register" && password !== authForm.confirmPassword.trim()) {
-      setStatus({ message: "Passwords do not match.", tone: "warning" });
-      setLoadingAuth(false);
-      return;
-    }
-
-    if (password.length < 6) {
-      setStatus({ message: "Password must be at least 6 characters long.", tone: "warning" });
-      setLoadingAuth(false);
-      return;
-    }
-
+    const email = authForm.email.trim();
+    const password = authForm.password;
     try {
-      const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
-      const response = await apiRequest(endpoint, {
-        method: "POST",
-        body: JSON.stringify({ username, password })
-      });
-
-      const { player, favorites: nextFavorites } = normalizeSessionResponse(response);
-
-      localStorage.setItem("luma-prime-token", response.token);
-      setSessionToken(response.token);
-      setProfile(player);
-      setFavorites(nextFavorites);
-      setStatus({ message: authMode === "register" ? `Account created for ${player?.username || username}.` : `Signed in as ${player?.username || username}.`, tone: "success" });
-      setAuthForm({ username: "", password: "", confirmPassword: "" });
+      if (!email || !password || (authMode === "register" && !username)) throw new Error("Enter your email, password, and (for registration) player name.");
+      if (authMode === "register" && password !== authForm.confirmPassword) throw new Error("Passwords do not match.");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      if (authMode === "register") {
+        const response = await supabaseRequest("/auth/v1/signup", { method: "POST", body: { email, password, data: { display_name: username } } });
+        if (response.access_token) {
+          localStorage.setItem("luma-prime-token", response.access_token);
+          setSessionToken(response.access_token);
+        } else {
+          setAuthMode("login");
+          setStatus({ message: "Account created. Check your email for the confirmation link, then log in.", tone: "success" });
+        }
+      } else {
+        const response = await supabaseRequest("/auth/v1/token?grant_type=password", { method: "POST", body: { email, password } });
+        if (!response.access_token) throw new Error("No login session returned.");
+        localStorage.setItem("luma-prime-token", response.access_token);
+        setSessionToken(response.access_token);
+      }
+      setAuthForm({ username: "", email, password: "", confirmPassword: "" });
     } catch (error) {
       setStatus({ message: error.message, tone: "warning" });
     } finally {
@@ -709,23 +706,14 @@ export default function LumaPrimeMarketplace() {
 
   const handleLogout = async () => {
     if (sessionToken) {
-      try {
-        await apiRequest("/api/auth/logout", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${sessionToken}`
-          }
-        });
-      } catch {
-        // Ignore logout errors and clear locally.
-      }
+      try { await supabaseRequest("/auth/v1/logout", { method: "POST", token: sessionToken }); }
+      catch { /* Clear local session regardless. */ }
     }
-
     localStorage.removeItem("luma-prime-token");
     setSessionToken(null);
     setProfile(null);
     setFavorites([]);
-    setStatus({ message: "Signed out. Your watchlist is now cleared until you log in again.", tone: "info" });
+    setStatus({ message: "Signed out.", tone: "info" });
   };
 
   const syncDndBeyondGold = async (event) => {
@@ -778,32 +766,15 @@ export default function LumaPrimeMarketplace() {
   };
 
   const handleToggleFavorite = async (itemId) => {
-    if (!sessionToken) {
-      setStatus({ message: "Log in to save favorites and keep a personal watchlist.", tone: "warning" });
+    if (!sessionToken || !profile) {
+      setStatus({ message: "Log in to save favorites.", tone: "warning" });
       return;
     }
-
-    setFavoriteBusy(true);
-
-    try {
-      const response = await apiRequest("/api/player/favorites", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${sessionToken}`
-        },
-        body: JSON.stringify({ itemId, add: !isFavorite(itemId) })
-      });
-
-      setFavorites(response.favorites || []);
-      setStatus({
-        message: isFavorite(itemId) ? `Removed ${items.find((item) => item.id === itemId)?.name || "item"} from your watchlist.` : `Added ${items.find((item) => item.id === itemId)?.name || "item"} to your watchlist.`,
-        tone: "success"
-      });
-    } catch (error) {
-      setStatus({ message: error.message, tone: "warning" });
-    } finally {
-      setFavoriteBusy(false);
-    }
+    // Device-local until a secured, shared Wish Vault is implemented.
+    const next = favorites.includes(itemId) ? favorites.filter((id) => id !== itemId) : [...favorites, itemId];
+    localStorage.setItem(`luma-prime-favorites-${profile.id}`, JSON.stringify(next));
+    setFavorites(next);
+    setStatus({ message: "Wish Vault updated on this device.", tone: "success" });
   };
 
   const addToCart = (item) => {
@@ -931,11 +902,19 @@ export default function LumaPrimeMarketplace() {
                     Register
                   </button>
                 </div>
-                <input
+                {authMode === "register" ? <input
                   type="text"
                   value={authForm.username}
                   onChange={(event) => setAuthForm((current) => ({ ...current, username: event.target.value }))}
                   placeholder="Player name"
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
+                /> : null}
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="Email address"
                   className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
                 />
                 <input
