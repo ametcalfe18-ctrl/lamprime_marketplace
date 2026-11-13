@@ -267,6 +267,9 @@ export default function LumaPrimeMarketplace() {
   const [dmDepositAmount, setDmDepositAmount] = useState("100");
   const [generatedDmCode, setGeneratedDmCode] = useState("");
   const [generatingDmCode, setGeneratingDmCode] = useState(false);
+  const [dmPlayers, setDmPlayers] = useState([]);
+  const [loadingDmPlayers, setLoadingDmPlayers] = useState(false);
+  const [dmPlayersError, setDmPlayersError] = useState("");
   const [depositCode, setDepositCode] = useState("");
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [favorites, setFavorites] = useState([]);
@@ -654,6 +657,7 @@ export default function LumaPrimeMarketplace() {
       setWalletBalance(null);
       setIsDmAdmin(false);
       setShowDmDashboard(false);
+      setDmPlayers([]);
       return;
     }
     let active = true;
@@ -739,7 +743,25 @@ export default function LumaPrimeMarketplace() {
     setIsDmAdmin(false);
     setShowDmDashboard(false);
     setGeneratedDmCode("");
+    setDmPlayers([]);
     setStatus({ message: "Signed out.", tone: "info" });
+  };
+
+  const loadDmPlayers = async () => {
+    if (!sessionToken || !isDmAdmin) return;
+    setLoadingDmPlayers(true);
+    setDmPlayersError("");
+    try {
+      const result = await supabaseRequest("/rest/v1/rpc/dm_list_players", {
+        method: "POST", token: sessionToken, body: {}
+      });
+      if (!Array.isArray(result)) throw new Error("Unexpected player list response.");
+      setDmPlayers(result);
+    } catch (error) {
+      setDmPlayersError(error.message);
+    } finally {
+      setLoadingDmPlayers(false);
+    }
   };
 
   const generateDmDepositCode = async (event) => {
@@ -1069,6 +1091,36 @@ export default function LumaPrimeMarketplace() {
                 <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setStatus({ message: "Code copied to clipboard.", tone: "success" }); } catch { setStatus({ message: "Copy failed. Select the code above and copy it manually.", tone: "warning" }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
               </div>
             ) : null}
+            <div className="mt-6 border-t border-white/10 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Player Management</h3>
+                  <p className="mt-1 text-xs text-slate-300">Read-only list of registered players and their current Lumina balances.</p>
+                </div>
+                <button type="button" onClick={loadDmPlayers} disabled={loadingDmPlayers} className="rounded-xl border border-amber-300/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50">
+                  {loadingDmPlayers ? "Loading..." : dmPlayers.length ? "Refresh players" : "Load players"}
+                </button>
+              </div>
+              {dmPlayersError ? <p role="alert" className="mt-3 text-sm text-rose-300">Could not load players: {dmPlayersError}</p> : null}
+              {dmPlayers.length ? (
+                <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+                  <table className="w-full min-w-[440px] text-left text-sm">
+                    <thead className="bg-white/10 text-xs uppercase tracking-wider text-amber-100">
+                      <tr><th className="px-3 py-3">Player</th><th className="px-3 py-3">Lumina</th><th className="px-3 py-3">Joined</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10 text-slate-100">
+                      {dmPlayers.map((player) => (
+                        <tr key={player.player_id}>
+                          <td className="px-3 py-3">{player.player_name || "Adventurer"}</td>
+                          <td className="px-3 py-3 font-semibold">{Number(player.balance).toLocaleString()} Lumina</td>
+                          <td className="px-3 py-3">{player.joined_at ? new Date(player.joined_at).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : !loadingDmPlayers && !dmPlayersError ? <p className="mt-3 text-xs text-slate-400">Select Load players to view registered accounts.</p> : null}
+            </div>
           </section>
         ) : null}
 
