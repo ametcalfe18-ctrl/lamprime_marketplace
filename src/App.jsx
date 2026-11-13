@@ -261,6 +261,9 @@ export default function LumaPrimeMarketplace() {
   const [authForm, setAuthForm] = useState({ username: "", email: "", password: "", confirmPassword: "" });
   const [sessionToken, setSessionToken] = useState(() => (typeof window === "undefined" ? null : localStorage.getItem("luma-prime-token")));
   const [profile, setProfile] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [depositCode, setDepositCode] = useState("");
+  const [redeemingCode, setRedeemingCode] = useState(false);
   const [favorites, setFavorites] = useState([]);
   const [status, setStatus] = useState({ message: "Log in to save favorites and unlock your dashboard.", tone: "info" });
   const [loadingAuth, setLoadingAuth] = useState(false);
@@ -419,7 +422,7 @@ export default function LumaPrimeMarketplace() {
   const cartTotal = cart.reduce((total, entry) => total + getPriceValue(entry.item) * entry.quantity, 0);
   const tagOptions = ["All", ...getAllTags()];
   const rarityOptions = ["All", ...Array.from(new Set(items.map((item) => item.rarity)))];
-  const current = players[0] || defaultPlayer;
+  const current = { ...(players[0] || defaultPlayer), wallet: walletBalance ?? 0 };
   const unlocked = Boolean(current);
   const worldNotices = useMemo(() => {
     const notices = [
@@ -515,6 +518,8 @@ export default function LumaPrimeMarketplace() {
   };
 
   const financeItem = (item, type) => {
+    setStatus({ message: "PrimeCredit purchases are paused until secure checkout is implemented.", tone: "warning" });
+    return;
     if (!unlocked) {
       return;
     }
@@ -591,6 +596,8 @@ export default function LumaPrimeMarketplace() {
   };
 
   const processPayment = (debtId) => {
+    setStatus({ message: "PrimeCredit payments are paused until secure checkout is implemented.", tone: "warning" });
+    return;
     const debt = financedItems.find((entry) => entry.id === debtId);
     if (!debt) {
       return;
@@ -639,6 +646,7 @@ export default function LumaPrimeMarketplace() {
     if (!sessionToken) {
       setProfile(null);
       setFavorites([]);
+      setWalletBalance(null);
       return;
     }
     let active = true;
@@ -656,6 +664,7 @@ export default function LumaPrimeMarketplace() {
           loginCount: 1
         });
         setFavorites(localFavorites(user.id));
+        setWalletBalance(row?.lumina_balance ?? 0);
         setStatus({ message: "Signed in successfully.", tone: "success" });
       } catch (error) {
         if (!active) return;
@@ -663,6 +672,7 @@ export default function LumaPrimeMarketplace() {
         setSessionToken(null);
         setProfile(null);
         setFavorites([]);
+        setWalletBalance(null);
         setStatus({ message: `Please log in again: ${error.message}`, tone: "warning" });
       }
     }
@@ -713,56 +723,44 @@ export default function LumaPrimeMarketplace() {
     setSessionToken(null);
     setProfile(null);
     setFavorites([]);
+    setWalletBalance(null);
     setStatus({ message: "Signed out.", tone: "info" });
+  };
+
+  const redeemDepositCode = async (event) => {
+    event.preventDefault();
+    if (!sessionToken || !profile) {
+      setStatus({ message: "Please log in before redeeming a code.", tone: "warning" });
+      return;
+    }
+    const code = depositCode.trim();
+    if (!code) {
+      setStatus({ message: "Enter your deposit code.", tone: "warning" });
+      return;
+    }
+    setRedeemingCode(true);
+    try {
+      const newBalance = await supabaseRequest("/rest/v1/rpc/redeem_lumina_code", {
+        method: "POST",
+        token: sessionToken,
+        body: { entered_code: code }
+      });
+      if (!Number.isSafeInteger(newBalance) || newBalance < 0) {
+        throw new Error("Redemption response was unexpected. Refresh and check your wallet.");
+      }
+      setWalletBalance(newBalance);
+      setDepositCode("");
+      setStatus({ message: `Deposit redeemed! Your wallet now holds ${formatCurrency(newBalance)}.`, tone: "success" });
+    } catch (error) {
+      setStatus({ message: `Code redemption failed: ${error.message}`, tone: "warning" });
+    } finally {
+      setRedeemingCode(false);
+    }
   };
 
   const syncDndBeyondGold = async (event) => {
     event.preventDefault();
-
-    const sheetUrl = ddbSheetUrl.trim();
-    if (!sheetUrl) {
-      setStatus({ message: "Paste a public D&D Beyond character sheet URL to sync your wallet.", tone: "warning" });
-      return;
-    }
-
-    setDdbSyncing(true);
-    setStatus({ message: "Syncing your D&D Beyond gold...", tone: "info" });
-
-    try {
-      const response = await apiRequest("/api/dndbeyond/sync", {
-        method: "POST",
-        body: JSON.stringify({ sheetUrl })
-      });
-
-      const gold = Number(response.gold);
-      if (!Number.isFinite(gold)) {
-        throw new Error("The synced sheet did not return a valid gold value.");
-      }
-
-      setPlayers((prev) =>
-        prev.map((player, index) =>
-          index === 0
-            ? {
-                ...player,
-                wallet: gold,
-                ddbGold: gold,
-                ddbLastSyncedAt: response.syncedAt || new Date().toISOString(),
-                ddbSourceUrl: response.sourceUrl || sheetUrl,
-                ddbSyncStatus: "Synced from D&D Beyond"
-              }
-            : player
-        )
-      );
-
-      setStatus({
-        message: `D&D Beyond gold synced to ${formatCurrency(gold)}. Your LumaPrime wallet now reflects the character sheet.`,
-        tone: "success"
-      });
-    } catch (error) {
-      setStatus({ message: error.message, tone: "warning" });
-    } finally {
-      setDdbSyncing(false);
-    }
+    setStatus({ message: "D&D Beyond wallet syncing is temporarily unavailable while we build secure verification. It cannot add Lumina yet.", tone: "warning" });
   };
 
   const handleToggleFavorite = async (itemId) => {
@@ -1052,9 +1050,9 @@ export default function LumaPrimeMarketplace() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">D&D Beyond wallet link</p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-200">Paste a public character sheet URL to mirror its gold into your LumaPrime wallet. Syncing refreshes the wallet balance from the sheet.</p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-200">D&D Beyond syncing is temporarily unavailable until we can verify character funds securely. It will not change your Lumina wallet.</p>
                 </div>
-                <span className="rounded-full border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold text-cyan-100">{current.ddbSyncStatus || "Local starter wallet"}</span>
+                <span className="rounded-full border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold text-cyan-100">{"Sync pending"}</span>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1064,9 +1062,34 @@ export default function LumaPrimeMarketplace() {
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                   <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">D&D Beyond gold</p>
-                  <p className="mt-2 text-2xl font-bold text-cyan-100">{formatCurrency(current.ddbGold ?? current.wallet)}</p>
+                  <p className="mt-2 text-2xl font-bold text-cyan-100">{"Not connected"}</p>
                 </div>
               </div>
+
+              <form onSubmit={redeemDepositCode} className="mt-4 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/5 p-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-amber-200">Load Lumina</p>
+                  <p className="mt-1 text-xs text-slate-300">Redeem a one-time deposit code issued by your DM. Each code works only once.</p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={depositCode}
+                    onChange={(event) => setDepositCode(event.target.value)}
+                    placeholder="Enter your deposit code"
+                    aria-label="Lumina deposit code"
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-300/60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!profile || redeemingCode || !depositCode.trim()}
+                    className="rounded-xl border border-amber-300/40 bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50"
+                  >
+                    {redeemingCode ? "Redeeming..." : "Redeem code"}
+                  </button>
+                </div>
+              </form>
 
               <form onSubmit={syncDndBeyondGold} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
                 <input
@@ -1078,17 +1101,17 @@ export default function LumaPrimeMarketplace() {
                 />
                 <button
                   type="submit"
-                  disabled={ddbSyncing}
+                  disabled
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   <RefreshCw className={`h-4 w-4 ${ddbSyncing ? "animate-spin" : ""}`} />
-                  {ddbSyncing ? "Syncing..." : "Sync wallet"}
+                  {"Sync unavailable"}
                 </button>
               </form>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
                 <Coins className="h-4 w-4 text-amber-200" />
-                <span>{current.ddbLastSyncedAt ? `Last synced ${new Date(current.ddbLastSyncedAt).toLocaleString()}` : "No live D&D Beyond sync yet."}</span>
+                <span>Secure D&D Beyond syncing is not enabled yet.</span>
               </div>
             </div>
           </div>
@@ -1455,7 +1478,7 @@ export default function LumaPrimeMarketplace() {
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={clearCart} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100">Clear cart</button>
-                      <button type="button" className="flex-1 rounded-xl border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-100">Checkout</button>
+                      <button type="button" disabled title="Secure checkout is being built" className="flex-1 cursor-not-allowed rounded-xl border border-cyan-300/20 bg-cyan-400/5 px-3 py-2 text-sm font-semibold text-slate-400">Checkout coming soon</button>
                     </div>
                   </div>
                 ) : (
