@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, CreditCard, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { marketplaceItems as items } from "./data/items";
@@ -15,8 +15,21 @@ async function supabaseRequest(path, { method = "GET", body, token } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {})
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.msg || data.error_description || data.message || data.error || "Account request failed");
+  if (!response.ok) {
+    const error = new Error(data.msg || data.error_description || data.message || data.error || "Account request failed");
+    error.databaseCode = data.code;
+    throw error;
+  }
   return data;
+}
+
+function savedCheckoutKeys(storageKey) {
+  if (!storageKey) return {};
+  try {
+    return JSON.parse(sessionStorage.getItem(storageKey) || "{}") || {};
+  } catch {
+    return {};
+  }
 }
 
 function localFavorites(userId) {
@@ -272,6 +285,8 @@ export default function LumaPrimeMarketplace() {
   const [dmOrders, setDmOrders] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutMessage, setCheckoutMessage] = useState(null);
+  const checkoutInProgress = useRef(false);
   const [dmBusy, setDmBusy] = useState(false);
   const [loadingDmPlayers, setLoadingDmPlayers] = useState(false);
   const [dmPlayersError, setDmPlayersError] = useState("");
@@ -432,7 +447,31 @@ export default function LumaPrimeMarketplace() {
   const isFavorite = (itemId) => favorites.includes(itemId);
   const badgeList = useMemo(() => deriveBadges(profile, favorites.length), [profile, favorites.length]);
   const cartCount = cart.reduce((total, entry) => total + entry.quantity, 0);
-  const cartTotal = cart.reduce((total, entry) => total + getPriceValue(entry.item) * entry.quantity, 0);
+  const inventoryById = useMemo(
+    () => new Map(inventory.map((product) => [product.product_id, product])),
+    [inventory]
+  );
+  const cartLines = cart.map((entry) => {
+    const product = inventoryById.get(entry.item.id);
+    return { ...entry, product, unitPrice: product ? Number(product.price) : getPriceValue(entry.item) };
+  });
+  const { purchaseTotal, reservationTotal, hasPurchase, hasRequest } = cartLines.reduce((totals, line) => {
+    if (line.product?.requires_dm_approval) {
+      totals.reservationTotal += line.unitPrice * line.quantity;
+      totals.hasRequest = true;
+    } else {
+      totals.purchaseTotal += line.unitPrice * line.quantity;
+      totals.hasPurchase = true;
+    }
+    return totals;
+  }, { purchaseTotal: 0, reservationTotal: 0, hasPurchase: false, hasRequest: false });
+  const checkoutStorageKey = profile ? `lumaprime-checkout-${profile.id}` : null;
+  const cartSignature = JSON.stringify(cartLines.map(({ item, quantity }) => [item.id, quantity])
+    .sort(([first], [second]) => first.localeCompare(second)));
+  const retry = savedCheckoutKeys(checkoutStorageKey)[cartSignature];
+  const cartReady = cartLines.every(({ product, quantity }) =>
+    product?.is_active && (product.stock_quantity === null || quantity <= product.stock_quantity)
+  );
   const tagOptions = ["All", ...getAllTags()];
   const rarityOptions = ["All", ...Array.from(new Set(items.map((item) => item.rarity)))];
   const current = { ...(players[0] || defaultPlayer), wallet: walletBalance ?? 0 };
@@ -736,6 +775,8 @@ export default function LumaPrimeMarketplace() {
   };
 
   const handleLogout = async () => {
+    if (checkoutInProgress.current) return;
+    setCheckoutMessage(null);
     if (sessionToken) {
       try { await supabaseRequest("/auth/v1/logout", { method: "POST", token: sessionToken }); }
       catch { /* Clear local session regardless. */ }
@@ -826,23 +867,58 @@ export default function LumaPrimeMarketplace() {
   };
 
   const checkoutCart = async () => {
-    if (!sessionToken || !profile) { setStatus({ message: "Log in before checkout.", tone: "warning" }); return; }
-    if (!cart.length) return;
+    if (!sessionToken || !profile || !cartLines.length || (!cartReady && !retry) || checkoutInProgress.current) return;
+    checkoutInProgress.current = true;
     setCheckoutBusy(true);
+    setCheckoutMessage(null);
+
     try {
+      const lines = cartLines.map(({ item, quantity, unitPrice, product }) => ({
+        product_id: item.id,
+        quantity,
+        expected_price: product ? unitPrice : undefined,
+        expected_approval: product?.requires_dm_approval
+      })).sort((a, b) => a.product_id.localeCompare(b.product_id));
+
+      // Keep the same key across network failures and reloads in this tab.
+      const savedKeys = savedCheckoutKeys(checkoutStorageKey);
+      const attempt = retry || { key: crypto.randomUUID(), lines };
+      savedKeys[cartSignature] = attempt;
+      sessionStorage.setItem(checkoutStorageKey, JSON.stringify(savedKeys));
+
       const result = await supabaseRequest("/rest/v1/rpc/place_marketplace_order", {
-        method: "POST", token: sessionToken,
-        body: { cart_items: cart.map((entry) => ({ product_id: entry.item.id, quantity: entry.quantity })) }
+        method: "POST",
+        token: sessionToken,
+        body: { cart_items: attempt.lines, checkout_key: attempt.key }
       });
+      if (!(result.purchase_id || result.request_id)) {
+        throw new Error("Checkout confirmation is unavailable. Retry with the same cart.");
+      }
+
+      // Clear the saved cart before releasing its checkout key.
+      localStorage.removeItem("luma-prime-cart");
+      delete savedKeys[cartSignature];
+      sessionStorage.setItem(checkoutStorageKey, JSON.stringify(savedKeys));
       setWalletBalance(result.balance);
       setCart([]);
-      setShowCart(false);
+      const messages = [];
+      if (result.purchase_id) messages.push(`Purchase complete. ${formatCurrency(result.purchased_total)} spent.`);
+      if (result.request_id) messages.push(`Request sent to the DM. ${formatCurrency(result.reserved_total)} reserved.`);
+      setCheckoutMessage({ text: messages.join(" "), success: true });
       await loadInventory();
-      setStatus({ message: result.status === "pending_approval"
-        ? `Order submitted for DM approval. ${formatCurrency(result.total)} reserved from your wallet.`
-        : `Purchase complete! Spent ${formatCurrency(result.total)}.`, tone: "success" });
-    } catch (error) { setStatus({ message: `Checkout failed: ${error.message}`, tone: "warning" }); }
-    finally { setCheckoutBusy(false); }
+    } catch (error) {
+      // A database validation error confirms that the attempt did not commit.
+      if (error.databaseCode === "P0001") {
+        const savedKeys = savedCheckoutKeys(checkoutStorageKey);
+        delete savedKeys[cartSignature];
+        sessionStorage.setItem(checkoutStorageKey, JSON.stringify(savedKeys));
+      }
+      setCheckoutMessage({ text: error.message, success: false });
+      await loadInventory();
+    } finally {
+      checkoutInProgress.current = false;
+      setCheckoutBusy(false);
+    }
   };
 
   useEffect(() => { loadInventory(); }, []);
@@ -920,6 +996,8 @@ export default function LumaPrimeMarketplace() {
   };
 
   const addToCart = (item) => {
+    if (checkoutInProgress.current) return;
+    setCheckoutMessage(null);
     setCart((current) => {
       const existingIndex = current.findIndex((entry) => entry.item.id === item.id);
       if (existingIndex >= 0) {
@@ -939,6 +1017,8 @@ export default function LumaPrimeMarketplace() {
   };
 
   const updateCartQuantity = (itemId, delta) => {
+    if (checkoutInProgress.current) return;
+    setCheckoutMessage(null);
     setCart((current) => current.flatMap((entry) => {
       if (entry.item.id !== itemId) {
         return [entry];
@@ -954,10 +1034,14 @@ export default function LumaPrimeMarketplace() {
   };
 
   const removeFromCart = (itemId) => {
+    if (checkoutInProgress.current) return;
+    setCheckoutMessage(null);
     setCart((current) => current.filter((entry) => entry.item.id !== itemId));
   };
 
   const clearCart = () => {
+    if (checkoutInProgress.current) return;
+    setCheckoutMessage(null);
     setCart([]);
     setStatus({ message: "Your cart is empty.", tone: "info" });
   };
@@ -1027,7 +1111,7 @@ export default function LumaPrimeMarketplace() {
                     {showDmDashboard ? "Hide DM Dashboard" : "DM Dashboard"}
                   </button>
                 ) : null}
-                <button onClick={handleLogout} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
+                <button onClick={handleLogout} disabled={checkoutBusy} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
                   Log out
                 </button>
               </div>
@@ -1649,7 +1733,7 @@ export default function LumaPrimeMarketplace() {
 
         {showCart ? (
           <div className="fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm" onClick={() => setShowCart(false)}>
-            <div className="absolute inset-y-0 right-0 w-full max-w-md border-l border-white/10 bg-[#050815] p-5 shadow-2xl shadow-fuchsia-950/30" onClick={(event) => event.stopPropagation()}>
+            <div className="absolute inset-y-0 right-0 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[#050815] p-5 shadow-2xl shadow-fuchsia-950/30" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Shopping Cart</p>
@@ -1660,41 +1744,73 @@ export default function LumaPrimeMarketplace() {
                 </button>
               </div>
 
+              {checkoutMessage && (
+                <p role={checkoutMessage.success ? "status" : "alert"} className={`mt-4 text-sm ${checkoutMessage.success ? "text-emerald-200" : "text-rose-200"}`}>
+                  {checkoutMessage.text}
+                </p>
+              )}
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 {cart.length ? (
                   <div className="space-y-3">
-                    {cart.map((entry) => (
+                    {cartLines.map((entry) => (
                       <div key={entry.item.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-white">{entry.item.name}</p>
-                            <p className="text-xs text-slate-300">{formatCurrency(getPriceValue(entry.item))} each</p>
+                            <p className="text-xs text-slate-300">{formatCurrency(entry.unitPrice)} each</p>
+                            {entry.product?.requires_dm_approval && <p className="text-xs text-amber-200">Requires DM approval</p>}
+                            {entry.product && (
+                              <p className="text-xs text-slate-300">
+                                {entry.product.is_active
+                                  ? entry.product.stock_quantity === null ? "Unlimited stock" : `${entry.product.stock_quantity} available`
+                                  : "Unavailable"}
+                              </p>
+                            )}
                           </div>
-                          <button type="button" onClick={() => removeFromCart(entry.item.id)} className="text-xs text-rose-200">Remove</button>
+                          <button type="button" onClick={() => removeFromCart(entry.item.id)} disabled={checkoutBusy} className="text-xs text-rose-200">Remove</button>
                         </div>
                         <div className="mt-3 flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => updateCartQuantity(entry.item.id, -1)} className="rounded-full border border-white/10 bg-white/5 p-1 text-slate-100">
+                            <button type="button" onClick={() => updateCartQuantity(entry.item.id, -1)} disabled={checkoutBusy} className="rounded-full border border-white/10 bg-white/5 p-1 text-slate-100">
                               <Minus className="h-4 w-4" />
                             </button>
                             <span className="min-w-8 text-center text-sm font-semibold text-white">{entry.quantity}</span>
-                            <button type="button" onClick={() => updateCartQuantity(entry.item.id, 1)} className="rounded-full border border-white/10 bg-white/5 p-1 text-slate-100">
+                            <button type="button" onClick={() => updateCartQuantity(entry.item.id, 1)} disabled={checkoutBusy} className="rounded-full border border-white/10 bg-white/5 p-1 text-slate-100">
                               <Plus className="h-4 w-4" />
                             </button>
                           </div>
-                          <p className="text-sm font-semibold text-cyan-100">{formatCurrency(getPriceValue(entry.item) * entry.quantity)}</p>
+                          <p className="text-sm font-semibold text-cyan-100">{formatCurrency(entry.unitPrice * entry.quantity)}</p>
                         </div>
                       </div>
                     ))}
                     <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3">
-                      <div className="flex items-center justify-between text-sm text-slate-100">
-                        <span>Total</span>
-                        <span className="font-bold text-white">{formatCurrency(cartTotal)}</span>
-                      </div>
+                      {hasPurchase && (
+                        <div className="flex justify-between gap-2 text-sm text-slate-100">
+                          <span>Purchase now</span><strong>{formatCurrency(purchaseTotal)}</strong>
+                        </div>
+                      )}
+                      {hasRequest && (
+                        <div className="flex justify-between gap-2 text-sm text-amber-100">
+                          <span>Reserve for DM approval</span><strong>{formatCurrency(reservationTotal)}</strong>
+                        </div>
+                      )}
+                      {hasPurchase && hasRequest && (
+                        <div className="mt-2 flex justify-between gap-2 border-t border-white/15 pt-2 text-sm text-white">
+                          <span>Total from wallet</span><strong>{formatCurrency(purchaseTotal + reservationTotal)}</strong>
+                        </div>
+                      )}
+                      {hasRequest && <p className="mt-2 text-xs text-slate-300">Rejected requests return the reserved Lumina to your wallet.</p>}
                     </div>
+                    {!cartReady && !retry && (
+                      <div className="flex items-center justify-between gap-3 text-xs text-amber-100">
+                        <p>Check availability and quantities before checkout.</p>
+                        <button type="button" onClick={loadInventory} disabled={checkoutBusy} className="underline">Refresh stock</button>
+                      </div>
+                    )}
+                    {!profile && <p className="text-xs text-slate-300">Sign in to check out.</p>}
                     <div className="flex gap-2">
-                      <button type="button" onClick={clearCart} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100">Clear cart</button>
-                      <button type="button" onClick={checkoutCart} disabled={checkoutBusy || !profile} className="flex-1 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50">{checkoutBusy ? "Processing..." : "Secure Checkout"}</button>
+                      <button type="button" disabled={checkoutBusy} onClick={clearCart} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100">Clear cart</button>
+                      <button type="button" onClick={checkoutCart} disabled={checkoutBusy || !profile || (!cartReady && !retry)} className="flex-1 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50">{checkoutBusy ? "Processing..." : retry ? "Retry Checkout" : "Secure Checkout"}</button>
                     </div>
                   </div>
                 ) : (
