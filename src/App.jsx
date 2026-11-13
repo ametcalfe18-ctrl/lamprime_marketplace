@@ -268,6 +268,11 @@ export default function LumaPrimeMarketplace() {
   const [generatedDmCode, setGeneratedDmCode] = useState("");
   const [generatingDmCode, setGeneratingDmCode] = useState(false);
   const [dmPlayers, setDmPlayers] = useState([]);
+  const [dmTransactions, setDmTransactions] = useState([]);
+  const [dmOrders, setDmOrders] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [dmBusy, setDmBusy] = useState(false);
   const [loadingDmPlayers, setLoadingDmPlayers] = useState(false);
   const [dmPlayersError, setDmPlayersError] = useState("");
   const [depositCode, setDepositCode] = useState("");
@@ -764,6 +769,84 @@ export default function LumaPrimeMarketplace() {
     }
   };
 
+  const loadInventory = async () => {
+    try {
+      const rows = await supabaseRequest("/rest/v1/marketplace_inventory?select=product_id,product_name,rarity,price,stock_quantity,requires_dm_approval,is_active&order=product_name.asc");
+      if (Array.isArray(rows)) setInventory(rows);
+    } catch (error) {
+      setStatus({ message: `Could not load inventory: ${error.message}`, tone: "warning" });
+    }
+  };
+
+  const loadDmCommerce = async () => {
+    if (!isDmAdmin || !sessionToken) return;
+    setDmBusy(true);
+    try {
+      const [transactions, orders] = await Promise.all([
+        supabaseRequest("/rest/v1/rpc/dm_list_transactions", { method: "POST", token: sessionToken, body: {} }),
+        supabaseRequest("/rest/v1/rpc/dm_list_marketplace_orders", { method: "POST", token: sessionToken, body: {} })
+      ]);
+      setDmTransactions(transactions);
+      setDmOrders(orders);
+      await loadInventory();
+    } catch (error) {
+      setStatus({ message: `Could not load DM commerce: ${error.message}`, tone: "warning" });
+    } finally { setDmBusy(false); }
+  };
+
+  const updateDmInventory = async (product) => {
+    const answer = window.prompt(`Stock for ${product.product_name} (leave blank for unlimited):`, product.stock_quantity ?? "");
+    if (answer === null) return;
+    const stock = answer.trim() === "" ? null : Number(answer.trim());
+    if (stock !== null && (!Number.isSafeInteger(stock) || stock < 0 || stock > 1000000)) {
+      setStatus({ message: "Enter a nonnegative whole stock quantity or leave blank for unlimited.", tone: "warning" }); return;
+    }
+    const approval = window.confirm(`Require DM approval for ${product.product_name}? Click OK for yes, Cancel for no.`);
+    const active = window.confirm(`Keep ${product.product_name} listed for sale? Click OK for yes, Cancel to hide.`);
+    setDmBusy(true);
+    try {
+      await supabaseRequest("/rest/v1/rpc/dm_set_marketplace_inventory", { method: "POST", token: sessionToken,
+        body: { target_product: product.product_id, new_stock: stock, needs_approval: approval, is_listed: active } });
+      await loadInventory();
+      setStatus({ message: `Updated ${product.product_name}.`, tone: "success" });
+    } catch (error) { setStatus({ message: `Inventory update failed: ${error.message}`, tone: "warning" }); }
+    finally { setDmBusy(false); }
+  };
+
+  const reviewDmOrder = async (orderId, approve) => {
+    if (!window.confirm(`${approve ? "Approve" : "Reject and refund"} this order?`)) return;
+    setDmBusy(true);
+    try {
+      await supabaseRequest("/rest/v1/rpc/dm_review_marketplace_order", { method: "POST", token: sessionToken,
+        body: { target_order: orderId, approve } });
+      await loadDmCommerce();
+      setStatus({ message: `Order ${approve ? "approved" : "rejected and refunded"}.`, tone: "success" });
+    } catch (error) { setStatus({ message: `Order review failed: ${error.message}`, tone: "warning" }); }
+    finally { setDmBusy(false); }
+  };
+
+  const checkoutCart = async () => {
+    if (!sessionToken || !profile) { setStatus({ message: "Log in before checkout.", tone: "warning" }); return; }
+    if (!cart.length) return;
+    setCheckoutBusy(true);
+    try {
+      const result = await supabaseRequest("/rest/v1/rpc/place_marketplace_order", {
+        method: "POST", token: sessionToken,
+        body: { cart_items: cart.map((entry) => ({ product_id: entry.item.id, quantity: entry.quantity })) }
+      });
+      setWalletBalance(result.balance);
+      setCart([]);
+      setShowCart(false);
+      await loadInventory();
+      setStatus({ message: result.status === "pending_approval"
+        ? `Order submitted for DM approval. ${formatCurrency(result.total)} reserved from your wallet.`
+        : `Purchase complete! Spent ${formatCurrency(result.total)}.`, tone: "success" });
+    } catch (error) { setStatus({ message: `Checkout failed: ${error.message}`, tone: "warning" }); }
+    finally { setCheckoutBusy(false); }
+  };
+
+  useEffect(() => { loadInventory(); }, []);
+
   const generateDmDepositCode = async (event) => {
     event.preventDefault();
     if (!sessionToken || !isDmAdmin) return;
@@ -1091,6 +1174,19 @@ export default function LumaPrimeMarketplace() {
                 <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setStatus({ message: "Code copied to clipboard.", tone: "success" }); } catch { setStatus({ message: "Copy failed. Select the code above and copy it manually.", tone: "warning" }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
               </div>
             ) : null}
+            <div className="mt-6 border-t border-white/10 pt-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-bold text-white">Orders, Inventory & Transactions</h3>
+                <button type="button" disabled={dmBusy} onClick={loadDmCommerce} className="rounded-xl border border-amber-300/40 px-4 py-2 text-sm text-amber-100">{dmBusy ? "Working..." : "Load / Refresh Commerce"}</button>
+              </div>
+              {dmOrders.length > 0 && <div className="space-y-2"><h4 className="font-semibold text-amber-100">Orders</h4>{dmOrders.map((o) => <div key={o.order_id} className="rounded-xl border border-white/10 p-3 text-sm text-white">
+                <div className="flex flex-wrap justify-between gap-2"><span>{o.player_name} — {formatCurrency(o.order_total)}</span><span>{o.order_status}</span></div>
+                <p className="text-xs text-slate-300">{o.order_items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
+                {o.order_status === "pending_approval" && <div className="mt-2 flex gap-2"><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,true)} className="rounded-lg border border-emerald-300/50 px-3 py-1">Approve</button><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,false)} className="rounded-lg border border-rose-300/50 px-3 py-1">Reject & Refund</button></div>}
+              </div>)}</div>}
+              {inventory.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Inventory — select Edit to set stock and approval</h4><div className="max-h-64 space-y-1 overflow-y-auto">{inventory.map((p) => <div key={p.product_id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-2 text-xs text-white"><span>{p.product_name} — {p.stock_quantity === null ? "Unlimited" : `${p.stock_quantity} left`} {p.requires_dm_approval ? "• Approval" : ""} {!p.is_active ? "• Hidden" : ""}</span><button disabled={dmBusy} onClick={() => updateDmInventory(p)} className="rounded border border-amber-300/40 px-2 py-1">Edit</button></div>)}</div></div>}
+              {dmTransactions.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Recent Transactions</h4><div className="max-h-64 space-y-1 overflow-y-auto">{dmTransactions.map((t) => <div key={t.transaction_id} className="flex justify-between gap-2 border-b border-white/10 py-2 text-xs text-slate-200"><span>{t.player_name} • {t.transaction_type} • {new Date(t.created_at).toLocaleString()}</span><span>{formatCurrency(t.amount)}</span></div>)}</div></div>}
+            </div>
             <div className="mt-6 border-t border-white/10 pt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1598,7 +1694,7 @@ export default function LumaPrimeMarketplace() {
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={clearCart} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100">Clear cart</button>
-                      <button type="button" disabled title="Secure checkout is being built" className="flex-1 cursor-not-allowed rounded-xl border border-cyan-300/20 bg-cyan-400/5 px-3 py-2 text-sm font-semibold text-slate-400">Checkout coming soon</button>
+                      <button type="button" onClick={checkoutCart} disabled={checkoutBusy || !profile} className="flex-1 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50">{checkoutBusy ? "Processing..." : "Secure Checkout"}</button>
                     </div>
                   </div>
                 ) : (
