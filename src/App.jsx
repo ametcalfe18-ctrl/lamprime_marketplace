@@ -262,6 +262,11 @@ export default function LumaPrimeMarketplace() {
   const [sessionToken, setSessionToken] = useState(() => (typeof window === "undefined" ? null : localStorage.getItem("luma-prime-token")));
   const [profile, setProfile] = useState(null);
   const [walletBalance, setWalletBalance] = useState(null);
+  const [isDmAdmin, setIsDmAdmin] = useState(false);
+  const [showDmDashboard, setShowDmDashboard] = useState(false);
+  const [dmDepositAmount, setDmDepositAmount] = useState("100");
+  const [generatedDmCode, setGeneratedDmCode] = useState("");
+  const [generatingDmCode, setGeneratingDmCode] = useState(false);
   const [depositCode, setDepositCode] = useState("");
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [favorites, setFavorites] = useState([]);
@@ -647,6 +652,8 @@ export default function LumaPrimeMarketplace() {
       setProfile(null);
       setFavorites([]);
       setWalletBalance(null);
+      setIsDmAdmin(false);
+      setShowDmDashboard(false);
       return;
     }
     let active = true;
@@ -665,6 +672,9 @@ export default function LumaPrimeMarketplace() {
         });
         setFavorites(localFavorites(user.id));
         setWalletBalance(row?.lumina_balance ?? 0);
+        const adminCheck = await supabaseRequest("/rest/v1/rpc/is_dm_admin", { method: "POST", token: sessionToken, body: {} });
+        if (!active) return;
+        setIsDmAdmin(adminCheck === true);
         setStatus({ message: "Signed in successfully.", tone: "success" });
       } catch (error) {
         if (!active) return;
@@ -673,6 +683,8 @@ export default function LumaPrimeMarketplace() {
         setProfile(null);
         setFavorites([]);
         setWalletBalance(null);
+        setIsDmAdmin(false);
+        setShowDmDashboard(false);
         setStatus({ message: `Please log in again: ${error.message}`, tone: "warning" });
       }
     }
@@ -724,7 +736,34 @@ export default function LumaPrimeMarketplace() {
     setProfile(null);
     setFavorites([]);
     setWalletBalance(null);
+    setIsDmAdmin(false);
+    setShowDmDashboard(false);
+    setGeneratedDmCode("");
     setStatus({ message: "Signed out.", tone: "info" });
+  };
+
+  const generateDmDepositCode = async (event) => {
+    event.preventDefault();
+    if (!sessionToken || !isDmAdmin) return;
+    const amount = Number(dmDepositAmount);
+    if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000) {
+      setStatus({ message: "Enter a whole Lumina amount between 1 and 1,000,000,000.", tone: "warning" });
+      return;
+    }
+    setGeneratingDmCode(true);
+    setGeneratedDmCode("");
+    try {
+      const code = await supabaseRequest("/rest/v1/rpc/generate_lumina_code", {
+        method: "POST", token: sessionToken, body: { deposit_amount: amount }
+      });
+      if (typeof code !== "string" || !/^[A-F0-9]{32}$/.test(code)) throw new Error("Unexpected code response.");
+      setGeneratedDmCode(code);
+      setStatus({ message: `Created a single-use deposit code worth ${formatCurrency(amount)}. Save it now; it cannot be retrieved later.`, tone: "success" });
+    } catch (error) {
+      setStatus({ message: `Could not generate code: ${error.message}`, tone: "warning" });
+    } finally {
+      setGeneratingDmCode(false);
+    }
   };
 
   const redeemDepositCode = async (event) => {
@@ -865,7 +904,7 @@ export default function LumaPrimeMarketplace() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300">Player Session</p>
-                <p className="text-xs text-slate-300">Connected to the local LumaPrime API</p>
+                <p className="text-xs text-slate-300">Secure LumaPrime account</p>
               </div>
               {sessionToken ? (
                 <span className="rounded-full border border-emerald-300/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">Online</span>
@@ -878,6 +917,11 @@ export default function LumaPrimeMarketplace() {
               <div className="space-y-2">
                 <p className="text-sm text-slate-100">Signed in as <span className="font-semibold text-white">{profile.username}</span></p>
                 <p className="text-xs text-slate-300">Last login: {formatLoginDate(profile.lastLoginAt)}</p>
+                {isDmAdmin ? (
+                  <button type="button" onClick={() => setShowDmDashboard((visible) => !visible)} className="w-full rounded-xl border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-400/20">
+                    {showDmDashboard ? "Hide DM Dashboard" : "DM Dashboard"}
+                  </button>
+                ) : null}
                 <button onClick={handleLogout} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
                   Log out
                 </button>
@@ -1002,6 +1046,30 @@ export default function LumaPrimeMarketplace() {
               </div>
             </div>
           </div>
+        ) : null}
+
+        {isDmAdmin && showDmDashboard && profile ? (
+          <section className="mb-6 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">DM Only</p>
+            <h2 className="mt-2 text-2xl font-black text-white">LumaPrime DM Dashboard</h2>
+            <p className="mt-2 text-sm text-slate-300">Generate a single-use Lumina deposit code. Supabase checks your administrator permission before issuing it.</p>
+            <form onSubmit={generateDmDepositCode} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex-1 text-sm text-slate-200">
+                Lumina amount
+                <input type="number" min="1" max="1000000000" step="1" required value={dmDepositAmount} onChange={(event) => setDmDepositAmount(event.target.value)} className="mt-1 w-full rounded-xl border border-white/20 bg-black/30 px-3 py-2 text-white" />
+              </label>
+              <button type="submit" disabled={generatingDmCode} className="rounded-xl border border-amber-300/40 bg-amber-400/15 px-4 py-2 font-semibold text-amber-100 disabled:opacity-50">
+                {generatingDmCode ? "Generating..." : "Generate Deposit Code"}
+              </button>
+            </form>
+            {generatedDmCode ? (
+              <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-400/5 p-3">
+                <p className="text-xs text-amber-200">New code — copy and store it now. This code is shown only once.</p>
+                <code className="mt-2 block break-all font-mono text-lg font-bold tracking-wider text-white">{generatedDmCode}</code>
+                <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setStatus({ message: "Code copied to clipboard.", tone: "success" }); } catch { setStatus({ message: "Copy failed. Select the code above and copy it manually.", tone: "warning" }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
+              </div>
+            ) : null}
+          </section>
         ) : null}
 
         <section className="mb-6 grid gap-4 xl:grid-cols-[1.15fr_1fr]">
