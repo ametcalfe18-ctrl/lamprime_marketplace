@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, Heart, Filter, Orbit, Recycle, UserRound, ChevronRight, Plus, Minus, X, Coins } from "lucide-react";
+import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, Heart, Filter, Orbit, Recycle, UserRound, ChevronRight, Plus, Minus, X } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
@@ -356,12 +356,6 @@ const deliveryLabels = {
   dispatched: "In transit",
   delivered: "Delivered"
 };
-const fundingLabels = {
-  pending: "Awaiting DM review",
-  code_issued: "Code issued",
-  redeemed: "Code redeemed",
-  declined: "Declined"
-};
 const accountButton = "rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-2 text-sm font-semibold text-mint-100 disabled:opacity-50";
 const accountInput = "w-full rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-white";
 const accountCard = "rounded-xl border border-white/10 bg-black/25 p-3 text-sm";
@@ -480,127 +474,6 @@ function DeliveryEditor({ order, busy, onSave }) {
       </label>
       <button type="submit" className={accountButton} disabled={busy || (status === order.delivery_status && estimate.trim() === (order.delivery_estimate || ""))}>Save tracking</button>
     </form>
-  );
-}
-
-function FundingRequests({ token, isDm = false }) {
-  const load = useCallback(() => marketplaceRpc(token, "marketplace_funding_history", { include_all: isDm }), [token, isDm]);
-  const { rows, busy, error, refresh } = useMarketplaceList(load);
-  const [sheet, setSheet] = useState("");
-  const [amount, setAmount] = useState("");
-  const [working, setWorking] = useState(false);
-  const [notice, setNotice] = useState(null);
-  const [issued, setIssued] = useState(null);
-  const actionInProgress = useRef(false);
-  const requestAttempt = useRef(null);
-
-  async function submit(event) {
-    event.preventDefault();
-    if (actionInProgress.current) return;
-    actionInProgress.current = true;
-    setWorking(true);
-    setNotice(null);
-    const url = sheet.trim();
-    const value = Number(amount);
-    if (requestAttempt.current?.url !== url || requestAttempt.current?.value !== value) {
-      requestAttempt.current = { id: crypto.randomUUID(), url, value };
-    }
-    try {
-      await marketplaceRpc(token, "marketplace_request_funding", {
-        request_id: requestAttempt.current.id, sheet_url: url, requested_lumina: value
-      });
-      requestAttempt.current = null;
-      setAmount("");
-      setNotice({ text: "Request sent to your DM." });
-      refresh();
-    } catch (error) {
-      setNotice({ text: error.message, error: true });
-    } finally {
-      actionInProgress.current = false;
-      setWorking(false);
-    }
-  }
-
-  async function review(request, approve) {
-    if (actionInProgress.current || issued) return;
-    if (approve && !window.confirm(`Have you verified the character and recorded the campaign transfer for ${formatCurrency(request.amount)}?`)) return;
-    actionInProgress.current = true;
-    setWorking(true);
-    setNotice(null);
-    try {
-      const code = await marketplaceRpc(token, "dm_marketplace_review_funding", { target_request: request.request_id, approve });
-      if (approve) setIssued({ code, player: request.player_name });
-      else setNotice({ text: "Funding request declined." });
-      refresh();
-    } catch (error) {
-      setNotice({ text: error.message, error: true });
-      refresh();
-    } finally {
-      actionInProgress.current = false;
-      setWorking(false);
-    }
-  }
-
-  return (
-    <section className="mt-4 space-y-3 border-t border-white/10 pt-4" aria-label={isDm ? "Character Funding Requests" : "D&D Beyond Funding"}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-bold">{isDm ? "Character Funding Requests" : "D&D Beyond Funding"}</h3>
-        <button type="button" className={accountButton} disabled={busy || working} onClick={refresh}>Refresh requests</button>
-      </div>
-      {!isDm && (
-        <form onSubmit={submit} className="grid gap-3">
-          <p className="text-sm text-slate-300">Send your character sheet and the amount you want to load. Your DM verifies the transfer and gives you a one-time code to redeem above.</p>
-          <label className="grid gap-1 text-sm">
-            Character sheet link
-            <input type="url" required maxLength={500} value={sheet} onChange={(event) => setSheet(event.target.value)} className={accountInput} placeholder="https://www.dndbeyond.com/characters/123456" />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Requested Lumina
-            <input type="number" required min="1" max="1000000000" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className={accountInput} />
-          </label>
-          <button type="submit" disabled={working} className={accountButton}>{working ? "Sending…" : "Request funding"}</button>
-        </form>
-      )}
-      {notice && <p role={notice.error ? "alert" : "status"} className={notice.error ? "text-sm text-rose-200" : "text-sm text-emerald-200"}>{notice.text}</p>}
-      {issued && (
-        <div className={accountCard}>
-          <p>Copy this one-time code for {issued.player}. Save it before closing this panel.</p>
-          <code className="my-2 block select-all break-all text-amber-100">{issued.code}</code>
-          <div className="flex gap-2">
-            <button type="button" className={accountButton} onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(issued.code);
-                setNotice({ text: "Code copied." });
-              } catch {
-                setNotice({ text: "Select and copy the code above.", error: true });
-              }
-            }}>Copy code</button>
-            <button type="button" className={accountButton} onClick={() => setIssued(null)}>Done with code</button>
-          </div>
-        </div>
-      )}
-      {busy && <p role="status" className="text-sm text-slate-300">Loading funding requests…</p>}
-      {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
-      {!busy && !error && !rows.length && <p className="text-sm text-slate-300">No funding requests yet.</p>}
-      {rows.length > 0 && <div className="max-h-96 space-y-2 overflow-y-auto">
-        {rows.map((request) => (
-          <article key={request.request_id} className={accountCard}>
-            <div className="flex flex-wrap justify-between gap-2">
-              <strong>{isDm ? `${request.player_name} · ` : ""}{formatCurrency(request.amount)}</strong>
-              <span className="text-amber-100">{fundingLabels[request.request_status]}</span>
-            </div>
-            <a href={request.character_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-mint-200 underline">View character sheet</a>
-            <time className="ml-2 text-xs text-slate-300" dateTime={request.requested_at}>{new Date(request.requested_at).toLocaleDateString()}</time>
-            {isDm && request.request_status === "pending" && (
-              <div className="mt-2 flex gap-2">
-                <button type="button" className={accountButton} disabled={working || Boolean(issued)} onClick={() => review(request, true)}>Issue code</button>
-                <button type="button" className={accountButton} disabled={working || Boolean(issued)} onClick={() => review(request, false)}>Decline</button>
-              </div>
-            )}
-          </article>
-        ))}
-      </div>}
-    </section>
   );
 }
 
@@ -871,6 +744,7 @@ export default function LumaPrimeMarketplace() {
   const [showAccount, setShowAccount] = useState(isRecoveryCallback || callbackFailed || recoveryRequested);
   const [dmDepositAmount, setDmDepositAmount] = useState("100");
   const [generatedDmCode, setGeneratedDmCode] = useState("");
+  const [giftCardNotice, setGiftCardNotice] = useState(null);
   const [generatingDmCode, setGeneratingDmCode] = useState(false);
   const [dmPlayers, setDmPlayers] = useState([]);
   const [dmTransactions, setDmTransactions] = useState([]);
@@ -1126,6 +1000,7 @@ export default function LumaPrimeMarketplace() {
         setDepositCode("");
         setWalletNotice(null);
         setGeneratedDmCode("");
+        setGiftCardNotice(null);
         setDmPlayers([]);
         setDmPlayersError("");
         setDmOrders([]);
@@ -1471,23 +1346,24 @@ export default function LumaPrimeMarketplace() {
 
   const generateDmDepositCode = async (event) => {
     event.preventDefault();
-    if (!sessionToken || !isDmAdmin) return;
+    if (!sessionToken || !isDmAdmin || generatingDmCode) return;
     const amount = Number(dmDepositAmount);
     if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000) {
-      setStatus({ message: "Enter a whole Lumina amount between 1 and 1,000,000,000.", tone: "warning" });
+      setGiftCardNotice({ text: "Enter a whole Lumina amount between 1 and 1,000,000,000.", error: true });
       return;
     }
     setGeneratingDmCode(true);
-    setGeneratedDmCode("");
+    setGiftCardNotice(null);
     try {
       const code = await supabaseRequest("/rest/v1/rpc/generate_lumina_code", {
         method: "POST", token: sessionToken, body: { deposit_amount: amount }
       });
       if (typeof code !== "string" || !/^[A-F0-9]{32}$/.test(code)) throw new Error("Unexpected code response.");
-      if (accountUser.current === playerId) setGeneratedDmCode(code);
-      setStatus({ message: `Created a single-use deposit code worth ${formatCurrency(amount)}. Save it now; it cannot be retrieved later.`, tone: "success" });
+      if (accountUser.current !== playerId) return;
+      setGeneratedDmCode(code);
+      setGiftCardNotice({ text: `Created a one-time gift card worth ${formatCurrency(amount)}.` });
     } catch (error) {
-      setStatus({ message: `Could not generate code: ${error.message}`, tone: "warning" });
+      if (accountUser.current === playerId) setGiftCardNotice({ text: `Could not generate code: ${error.message}`, error: true });
     } finally {
       setGeneratingDmCode(false);
     }
@@ -1501,7 +1377,7 @@ export default function LumaPrimeMarketplace() {
     }
     const code = depositCode.trim();
     if (!code) {
-      setStatus({ message: "Enter your deposit code.", tone: "warning" });
+      setStatus({ message: "Enter your gift card code.", tone: "warning" });
       return;
     }
     setRedeemingCode(true);
@@ -1518,7 +1394,7 @@ export default function LumaPrimeMarketplace() {
       if (accountUser.current !== playerId) return;
       setWalletBalance(newBalance);
       setDepositCode("");
-      setWalletNotice({ text: `Deposit redeemed. Your wallet now holds ${formatCurrency(newBalance)}.` });
+      setWalletNotice({ text: `Gift card redeemed. Your wallet now holds ${formatCurrency(newBalance)}.` });
     } catch (error) {
       if (accountUser.current === playerId) setWalletNotice({ text: error.message, error: true });
     } finally {
@@ -2020,25 +1896,25 @@ export default function LumaPrimeMarketplace() {
               <h2 className="text-2xl font-bold text-white">DM Dashboard</h2>
               <button type="button" className={accountButton} onClick={() => setShowDmDashboard(false)}>Close dashboard</button>
             </div>
-            <p className="mt-2 text-sm text-slate-300">Generate a single-use Lumina deposit code.</p>
+            <p className="mt-2 text-sm text-slate-300">Create a one-time code to give a player when they buy a LumaPrime Gift Card in-game.</p>
             <form onSubmit={generateDmDepositCode} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="flex-1 text-sm text-slate-200">
                 Lumina amount
                 <input type="number" min="1" max="1000000000" step="1" required value={dmDepositAmount} onChange={(event) => setDmDepositAmount(event.target.value)} className="mt-1 w-full rounded-xl border border-white/20 bg-black/30 px-3 py-2 text-white" />
               </label>
               <button type="submit" disabled={generatingDmCode} className="rounded-xl border border-amber-300/40 bg-amber-400/15 px-4 py-2 font-semibold text-amber-100 disabled:opacity-50">
-                {generatingDmCode ? "Generating..." : "Generate Deposit Code"}
+                {generatingDmCode ? "Generating..." : "Generate Gift Card Code"}
               </button>
             </form>
             {generatedDmCode ? (
               <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-400/5 p-3">
-                <p className="text-xs text-amber-200">New code — copy and store it now. This code is shown only once.</p>
+                <p className="text-xs text-amber-200">Copy this gift card code before leaving. It’s shown only once.</p>
                 <code className="mt-2 block break-all font-mono text-lg font-bold tracking-wider text-white">{generatedDmCode}</code>
-                <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setStatus({ message: "Code copied to clipboard.", tone: "success" }); } catch { setStatus({ message: "Copy failed. Select the code above and copy it manually.", tone: "warning" }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
+                <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setGiftCardNotice({ text: "Gift card code copied." }); } catch { setGiftCardNotice({ text: "Select the code above and copy it manually.", error: true }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
               </div>
             ) : null}
+            {giftCardNotice && <p role={giftCardNotice.error ? "alert" : "status"} className={`mt-2 text-sm ${giftCardNotice.error ? "text-rose-200" : "text-emerald-200"}`}>{giftCardNotice.text}</p>}
             <PlayerInvites key={profile.id} token={sessionToken} />
-            <FundingRequests key={profile.id} token={sessionToken} isDm />
             <div className="mt-6 border-t border-white/10 pt-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-white">Orders, Inventory & Transactions</h3>
@@ -2171,8 +2047,8 @@ export default function LumaPrimeMarketplace() {
 
               <form onSubmit={redeemDepositCode} className="mt-4 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/5 p-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-amber-200">Load Lumina</p>
-                  <p className="mt-1 text-xs text-slate-300">Redeem a one-time deposit code issued by your DM. Each code works only once.</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-amber-200">Redeem LumaPrime Gift Card</p>
+                  <p className="mt-1 text-xs text-slate-300">Enter the gift card code from your DM to add Lumina to your wallet. Each code can be used once.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
@@ -2180,8 +2056,8 @@ export default function LumaPrimeMarketplace() {
                     autoComplete="off"
                     value={depositCode}
                     onChange={(event) => setDepositCode(event.target.value)}
-                    placeholder="Enter your deposit code"
-                    aria-label="Lumina deposit code"
+                    placeholder="Enter your gift card code"
+                    aria-label="LumaPrime Gift Card code"
                     className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-300/60"
                   />
                   <button
@@ -2197,7 +2073,6 @@ export default function LumaPrimeMarketplace() {
               {walletNotice && (
                 <p role={walletNotice.error ? "alert" : "status"} className={`mt-2 text-sm ${walletNotice.error ? "text-rose-200" : "text-emerald-200"}`}>{walletNotice.text}</p>
               )}
-              {profile && <FundingRequests key={profile.id} token={sessionToken} />}
             </div>
           </section>
 
