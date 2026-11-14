@@ -210,6 +210,8 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 .spotlight-empty .catalog-back { margin-top: 10px; }
 .catalog-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
 .catalog-toolbar label { display: grid; gap: 4px; font-size: .82rem; font-weight: 700; }
+.catalog-toolbar .catalog-stock-filter { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.catalog-stock-filter input { accent-color: #28634a; }
 .catalog-control { min-height: 40px; max-width: 100%; border: 1px solid #b8ab70; border-radius: 9px; padding: 6px 10px; background: #fffdf5; color: #173a2a; color-scheme: light; }
 .listing-list { display: grid; gap: 9px; }
 .listing-row { min-width: 0; border: 1px solid #e3cf9b; border-radius: 13px; background: #fffdf5; }

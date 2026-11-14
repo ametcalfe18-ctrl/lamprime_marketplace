@@ -732,6 +732,10 @@ function openCatalogLink(event, onNavigate) {
   onNavigate();
 }
 
+function hasStock(product, quantity = 1) {
+  return Boolean(product?.is_active && (product.stock_quantity === null || quantity <= product.stock_quantity));
+}
+
 function formatLoginDate(value) {
   if (!value) {
     return "Just now";
@@ -902,6 +906,7 @@ export default function LumaPrimeMarketplace() {
   const [sortMode, setSortMode] = useState(() => query.trim() ? "relevance" : "alphabetical");
   const [selectedTag, setSelectedTag] = useState("All");
   const [selectedRarity, setSelectedRarity] = useState("All");
+  const [inStockOnly, setInStockOnly] = useState(() => new URLSearchParams(window.location.search).get("stock") === "1");
 
   useEffect(() => {
     function restorePage() {
@@ -914,6 +919,7 @@ export default function LumaPrimeMarketplace() {
       setShowFilters(false);
       setSelectedTag("All");
       setSelectedRarity("All");
+      setInStockOnly(params.get("stock") === "1");
     }
     window.addEventListener("popstate", restorePage);
     return () => window.removeEventListener("popstate", restorePage);
@@ -952,10 +958,15 @@ export default function LumaPrimeMarketplace() {
       .map((product) => catalogItem(product, originals.get(product.product_id)));
   }, [inventory, inventoryLoaded]);
   const searchQuery = normalizeSearch(query);
+  const inventoryById = useMemo(
+    () => new Map(inventory.map((product) => [product.product_id, product])),
+    [inventory]
+  );
   const matches = useMemo(() => {
     const matchingItems = [];
     const terms = searchQuery.split(" ");
     for (const item of items) {
+      if (inStockOnly && !hasStock(inventoryById.get(item.id))) continue;
       if (selectedTag !== "All" && !item.tags.includes(selectedTag)) continue;
       if (selectedRarity !== "All" && item.rarity !== selectedRarity) continue;
 
@@ -972,7 +983,7 @@ export default function LumaPrimeMarketplace() {
     }
 
     return matchingItems.sort((first, second) => first.rank - second.rank).map(({ item }) => item);
-  }, [items, searchQuery, selectedTag, selectedRarity]);
+  }, [items, searchQuery, selectedTag, selectedRarity, inStockOnly, inventoryById]);
 
   const filtered = useMemo(() => {
     if (sortMode === "relevance") return matches;
@@ -992,7 +1003,8 @@ export default function LumaPrimeMarketplace() {
     });
   }, [matches, sortMode]);
 
-  const expandedId = openItemId || (searchQuery && !searchItemClosed ? matches[0]?.id : null);
+  const expandedId = matches.some((item) => item.id === openItemId)
+    ? openItemId : searchQuery && !searchItemClosed ? matches[0]?.id : null;
 
   function navigateStore(path, itemId = null) {
     const url = itemId ? `${path}?item=${encodeURIComponent(itemId)}` : path;
@@ -1007,6 +1019,7 @@ export default function LumaPrimeMarketplace() {
     setShowFilters(false);
     setSelectedTag("All");
     setSelectedRarity("All");
+    setInStockOnly(false);
     window.scrollTo(0, 0);
     if (itemId) {
       requestAnimationFrame(() => document.getElementById(`listing-${itemId}`)?.scrollIntoView?.({ block: "start" }));
@@ -1015,7 +1028,10 @@ export default function LumaPrimeMarketplace() {
 
   function updateSearch(value) {
     if (!isCatalog && !value.trim()) return;
-    const url = value.trim() ? `/catalog?q=${encodeURIComponent(value)}` : "/catalog";
+    const params = new URLSearchParams();
+    if (value.trim()) params.set("q", value);
+    if (inStockOnly) params.set("stock", "1");
+    const url = params.size ? `/catalog?${params}` : "/catalog";
     if (isCatalog) window.history.replaceState(null, "", url);
     else {
       window.history.pushState(null, "", url);
@@ -1026,6 +1042,14 @@ export default function LumaPrimeMarketplace() {
     else if (!searchQuery) setSortMode("relevance");
     setOpenItemId(null);
     setSearchItemClosed(false);
+  }
+
+  function updateStockFilter(value) {
+    const params = new URLSearchParams(window.location.search);
+    if (value) params.set("stock", "1");
+    else params.delete("stock");
+    window.history.replaceState(null, "", params.size ? `/catalog?${params}` : "/catalog");
+    setInStockOnly(value);
   }
 
   function toggleListing(itemId) {
@@ -1041,10 +1065,6 @@ export default function LumaPrimeMarketplace() {
   const isFavorite = (itemId) => favorites.includes(itemId);
   const badgeList = useMemo(() => deriveBadges(profile, favorites.length), [profile, favorites.length]);
   const cartCount = cart.reduce((total, entry) => total + entry.quantity, 0);
-  const inventoryById = useMemo(
-    () => new Map(inventory.map((product) => [product.product_id, product])),
-    [inventory]
-  );
   const cartLines = priceCartLines(cart.map((entry) => {
     const product = inventoryById.get(entry.item.id);
     return { ...entry, product, unitPrice: product ? Number(product.price) : getPriceValue(entry.item) };
@@ -1063,9 +1083,7 @@ export default function LumaPrimeMarketplace() {
   const cartSignature = JSON.stringify(cartLines.map(({ item, quantity }) => [item.id, quantity])
     .sort(([first], [second]) => first.localeCompare(second)));
   const retry = savedCheckoutKeys(checkoutStorageKey)[cartSignature];
-  const cartReady = cartLines.every(({ product, quantity }) =>
-    product?.is_active && (product.stock_quantity === null || quantity <= product.stock_quantity)
-  );
+  const cartReady = cartLines.every(({ product, quantity }) => hasStock(product, quantity));
   const tagOptions = ["All", ...getAllTags(items)];
   const rarityOptions = ["All", ...Array.from(new Set(items.map((item) => item.rarity)))];
   const balance = walletBalance ?? 0;
@@ -1530,26 +1548,23 @@ export default function LumaPrimeMarketplace() {
     }
   };
 
-  const addToCart = (item) => {
+  const addItemsToCart = (itemsToAdd) => {
     if (checkoutInProgress.current) return;
     setCheckoutMessage(null);
     setCart((current) => {
-      const existingIndex = current.findIndex((entry) => entry.item.id === item.id);
-      if (existingIndex >= 0) {
-        const next = [...current];
-        next[existingIndex] = {
-          ...next[existingIndex],
-          quantity: next[existingIndex].quantity + 1
-        };
-        return next;
+      const next = [...current];
+      for (const item of itemsToAdd) {
+        const existingIndex = next.findIndex((entry) => entry.item.id === item.id);
+        if (existingIndex === -1) next.push({ item, quantity: 1 });
+        else next[existingIndex] = { item, quantity: next[existingIndex].quantity + 1 };
       }
-
-      return [...current, { item, quantity: 1 }];
+      return next;
     });
-
-    setStatus({ message: `${item.name} added to your cart.`, tone: "success" });
+    setStatus({ message: itemsToAdd.length === 1 ? `${itemsToAdd[0].name} added to your cart.` : "Both bundle items added to your cart.", tone: "success" });
     setShowCart(true);
   };
+
+  const addToCart = (item) => addItemsToCart([item]);
 
   const updateCartQuantity = (itemId, delta) => {
     if (checkoutInProgress.current) return;
@@ -1588,8 +1603,13 @@ export default function LumaPrimeMarketplace() {
   }
 
   function renderProductDetails(selected, product) {
-    const selectedPurchasable = Boolean(product?.is_active && (product.stock_quantity === null || product.stock_quantity > 0));
+    const selectedPurchasable = hasStock(product);
     const offer = listingOffer(selected);
+    const bundlePartner = offer && selected.offer?.kind === "bundle" ? items.find((item) => item.id === selected.offer.partner_id) : null;
+    const canAddBundle = bundlePartner && [selected, bundlePartner].every((item) => {
+      const quantity = cart.find((entry) => entry.item.id === item.id)?.quantity ?? 0;
+      return hasStock(inventoryById.get(item.id), quantity + 1);
+    });
     return (
         <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="product-detail">
           <div className="product-detail-grid">
@@ -1688,6 +1708,12 @@ export default function LumaPrimeMarketplace() {
                 >
                   Add to cart
                 </button>
+                {bundlePartner && selectedPurchasable && <button
+                  type="button"
+                  disabled={!canAddBundle || checkoutBusy}
+                  onClick={() => addItemsToCart([selected, bundlePartner])}
+                  className="rounded-full border border-amber-300/60 bg-amber-200 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-100 disabled:opacity-60"
+                >Add both to cart</button>}
               </div>
 
               <div className="flex items-center gap-3 mt-6">
@@ -1725,6 +1751,10 @@ export default function LumaPrimeMarketplace() {
         </div>
         <div className="catalog-toolbar">
           {searchQuery && <button type="button" className="catalog-control" onClick={() => updateSearch("")}>Clear search</button>}
+          <label className="catalog-control catalog-stock-filter">
+            <input type="checkbox" checked={inStockOnly} onChange={(event) => updateStockFilter(event.target.checked)} />
+            In stock only
+          </label>
           <label>Sort by
             <select className="catalog-control" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
               {searchQuery && <option value="relevance">Best match</option>}
@@ -1733,7 +1763,10 @@ export default function LumaPrimeMarketplace() {
           </label>
         </div>
       </div>
-      {inventoryLoaded && filtered.length === 0 && <p className="spotlight-empty">No listings match. Try a different search or clear the filters.</p>}
+      {inventoryLoaded && filtered.length === 0 && <div className="spotlight-empty">
+        <p>{inStockOnly ? "No in-stock listings match your search or filters." : "No listings match. Try a different search or clear the filters."}</p>
+        {inStockOnly && <button type="button" className="catalog-control mt-2" onClick={() => updateStockFilter(false)}>Include sold-out listings</button>}
+      </div>}
       <div className="listing-list">
         {inventoryLoaded && filtered.map((item) => {
           const open = expandedId === item.id;
@@ -2223,7 +2256,11 @@ export default function LumaPrimeMarketplace() {
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 {cart.length ? (
                   <div className="space-y-3">
-                    {cartLines.map((entry) => (
+                    {cartLines.map((entry) => {
+                      const offer = entry.product?.listing_details?.offer;
+                      const canCompleteBogo = offer?.kind === "bogo" && entry.quantity % 2 === 1 &&
+                        hasStock(entry.product, entry.quantity + 1) && Math.floor(entry.unitPrice * offer.percent / 100) > 0;
+                      return (
                       <div key={entry.item.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -2253,8 +2290,13 @@ export default function LumaPrimeMarketplace() {
                           </div>
                           <p className="text-sm font-semibold text-mint-100">{formatCurrency(entry.lineTotal)}</p>
                         </div>
+                        {canCompleteBogo && <button type="button" disabled={checkoutBusy}
+                          onClick={() => updateCartQuantity(entry.item.id, 1)}
+                          className="mt-3 rounded-lg border border-amber-300/40 bg-amber-300/10 px-3 py-1.5 text-left text-xs font-semibold text-amber-100 hover:bg-amber-300/20 disabled:opacity-60"
+                        >{entry.quantity === 1 ? "Add one more to unlock this deal" : "Add one more to complete another pair"}</button>}
                       </div>
-                    ))}
+                      );
+                    })}
                     <div className="rounded-2xl border border-mint-300/20 bg-mint-400/10 p-3">
                       {hasPurchase && (
                         <div className="flex justify-between gap-2 text-sm text-slate-100">
