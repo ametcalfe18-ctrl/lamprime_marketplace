@@ -29,42 +29,6 @@ function sanitizeUsername(username) {
   return username.trim().toLowerCase();
 }
 
-async function fetchDndBeyondSheet(urlString) {
-  const response = await fetch(urlString, {
-    headers: {
-      "User-Agent": "LumaPrimeMarketplace/1.0"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Unable to load D&D Beyond sheet (${response.status}).`);
-  }
-
-  return response.text();
-}
-
-function parseDndBeyondGold(html) {
-  const patterns = [
-    /"gold"\s*:\s*(\d+(?:\.\d+)?)/i,
-    /"gp"\s*:\s*(\d+(?:\.\d+)?)/i,
-    /gold[^0-9]{0,12}(\d+(?:\.\d+)?)/i,
-    /(\d+(?:\.\d+)?)\s*gp\b/i,
-    /(\d+(?:\.\d+)?)\s*gold\b/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) {
-      const value = Number.parseFloat(match[1]);
-      if (Number.isFinite(value) && value >= 0) {
-        return Math.round(value);
-      }
-    }
-  }
-
-  return null;
-}
-
 async function ensureStorage() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   try {
@@ -328,47 +292,6 @@ const server = http.createServer(async (req, res) => {
 
       const favorites = await getFavorites(token);
       jsonResponse(res, 200, { favorites });
-      return;
-    }
-
-    if (pathName === "/api/dndbeyond/sync" && req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk;
-      });
-      req.on("end", async () => {
-        try {
-          const payload = JSON.parse(body || "{}");
-          const sheetUrl = payload.sheetUrl?.trim();
-
-          if (!sheetUrl) {
-            jsonResponse(res, 400, { error: "A public D&D Beyond character sheet URL is required." });
-            return;
-          }
-
-          const normalizedUrl = new URL(sheetUrl);
-          if (!["www.dndbeyond.com", "dndbeyond.com"].includes(normalizedUrl.hostname)) {
-            jsonResponse(res, 400, { error: "Please provide a public D&D Beyond character sheet URL." });
-            return;
-          }
-
-          const html = await fetchDndBeyondSheet(normalizedUrl.toString());
-          const gold = parseDndBeyondGold(html);
-
-          if (gold === null) {
-            jsonResponse(res, 422, { error: "Could not find gold on the provided character sheet." });
-            return;
-          }
-
-          jsonResponse(res, 200, {
-            gold,
-            sourceUrl: normalizedUrl.toString(),
-            syncedAt: new Date().toISOString()
-          });
-        } catch (error) {
-          jsonResponse(res, 400, { error: error.message || "Unable to sync D&D Beyond gold." });
-        }
-      });
       return;
     }
 
