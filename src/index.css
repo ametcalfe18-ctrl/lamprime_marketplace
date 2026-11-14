@@ -23,14 +23,14 @@
 
 @font-face {
   font-family: Geist;
-  src: url("./assets/lumaprime/fonts/geist.woff2") format("woff2");
+  src: url("./geist.woff2") format("woff2");
   font-weight: 100 900;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Zalando Sans Expanded";
-  src: url("./assets/lumaprime/fonts/zalando-sans-expanded.woff2") format("woff2");
+  src: url("./zalando-sans-expanded.woff2") format("woff2");
   font-weight: 200 900;
   font-display: swap;
 }
@@ -133,7 +133,7 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
   border: 1px solid #d0ac62;
   border-radius: 22px;
   isolation: isolate;
-  background: #0a2117 url("./assets/lumaprime/liquid-light.webp") center / cover no-repeat;
+  background: #0a2117 url("./liquid-light.webp") center / cover no-repeat;
 }
 .store-hero::before {
   position: absolute;

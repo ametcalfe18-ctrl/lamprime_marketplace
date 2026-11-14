@@ -3,11 +3,11 @@ import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, He
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
-import waveLogo from "./assets/lumaprime/liquid-light-logo.webp";
-import coinArtwork from "./assets/lumaprime/coin.webp";
-import braceletArtwork from "./assets/lumaprime/bracelets.webp";
-import peepholeArtwork from "./assets/lumaprime/peephole.webp";
-import puppyArtwork from "./assets/lumaprime/puppies.webp";
+import waveLogo from "./liquid-light-logo.webp";
+import coinArtwork from "./coin.webp";
+import braceletArtwork from "./bracelets.webp";
+import peepholeArtwork from "./peephole.webp";
+import puppyArtwork from "./puppies.webp";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, "");
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
