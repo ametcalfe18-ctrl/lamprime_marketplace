@@ -618,7 +618,7 @@ function formatCurrency(value) {
 }
 
 function normalizeSearch(value) {
-  return value.toLowerCase().replace(/[™’']/g, "").trim().replace(/\s+/g, " ");
+  return value.toLowerCase().replace(/[™’']/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 function getPriceValue(item) {
@@ -870,18 +870,20 @@ export default function LumaPrimeMarketplace() {
   const searchQuery = normalizeSearch(query);
   const matches = useMemo(() => {
     const matchingItems = [];
+    const terms = searchQuery.split(" ");
     for (const item of items) {
       if (selectedTag !== "All" && !item.tags.includes(selectedTag)) continue;
       if (selectedRarity !== "All" && item.rarity !== selectedRarity) continue;
 
       const name = normalizeSearch(item.name);
       const searchableText = normalizeSearch([item.name, item.category, item.rarity, item.vendor, ...item.tags].join(" "));
-      if (searchQuery && !searchableText.includes(searchQuery)) continue;
+      if (searchQuery && !terms.every((term) => searchableText.includes(term))) continue;
 
-      let rank = 3;
+      let rank = 4;
       if (name === searchQuery) rank = 0;
       else if (name.startsWith(searchQuery)) rank = 1;
       else if (name.includes(searchQuery)) rank = 2;
+      else if (terms.every((term) => name.includes(term))) rank = 3;
       matchingItems.push({ item, rank });
     }
 
@@ -1611,6 +1613,304 @@ export default function LumaPrimeMarketplace() {
     setStatus({ message: "Your cart is empty.", tone: "info" });
   };
 
+  const storefrontListings = (
+    <div className={`grid w-full min-w-0 gap-6 lg:grid-cols-[280px_1fr] ${searchQuery ? "mb-6" : ""}`}>
+      <aside className={`w-full min-w-0 space-y-4 ${searchQuery ? "order-2 lg:order-1" : ""}`}>
+        <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-300">Active Listings</p>
+          <div className="listing-scrollbar w-full min-w-0 overflow-x-auto pb-2 snap-x snap-mandatory">
+            <div className="flex w-max gap-3">
+              {filtered.map((item) => (
+                <ProductCard
+                  key={item.id}
+                  item={item}
+                  selected={item.id === selected?.id}
+                  isFavorite={isFavorite(item.id)}
+                  onToggleFavorite={handleToggleFavorite}
+                  favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
+                  onAddToCart={addToCart}
+                  onClick={() => openListing(item.id)}
+                  className="w-56 flex-none snap-start"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-amber-300/20 bg-amber-400/5 p-4">
+          <div className="mb-2 flex items-center gap-2 text-amber-200"><AlertTriangle className="h-4 w-4" /><span className="text-sm font-semibold">Customs Advisory</span></div>
+          <p className="text-xs leading-relaxed text-slate-300">Items marked restricted may trigger port scans, Arrival Visa review, or confiscation in Pearl-controlled territories.</p>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Field Reports</p>
+          <div className="mt-3 space-y-3">
+            {worldNotices.map((notice) => (
+              <WorldNoticeCard key={`${notice.title}-sidebar`} badge={notice.badge} title={notice.title} copy={notice.copy} tone={notice.tone} />
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      <div ref={listingPanel} className={`min-w-0 scroll-mt-4 ${searchQuery ? "order-1 lg:order-2" : ""}`}>
+        {!selected ? (
+          <section className="self-start rounded-[2rem] border border-cyan-300/15 bg-black/35 p-6" role="status">
+            <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
+            {searchQuery && <>
+              <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>
+                {(selectedTag !== "All" || selectedRarity !== "All") && (
+                  <button type="button" className={accountButton} onClick={() => {
+                    setSelectedTag("All");
+                    setSelectedRarity("All");
+                  }}>Clear filters</button>
+                )}
+              </div>
+            </>}
+          </section>
+        ) : showFinancingPage ? (
+          <motion.section key={`finance-${selected.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
+            <div className="p-6 sm:p-8">
+              <button
+                type="button"
+                onClick={() => setShowFinancingPage(false)}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+              >
+                ← Back to listing
+              </button>
+  
+              <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="space-y-4">
+                  <div className="rounded-3xl border border-cyan-300/15 bg-cyan-400/5 p-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-200">Financing workspace</p>
+                    <h1 className="mt-3 text-3xl font-black text-white sm:text-4xl">{selected.name}</h1>
+                    <p className="mt-2 text-sm text-slate-200">{selected.subtitle}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Current wallet</p>
+                        <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(current.wallet)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Credit status</p>
+                        <p className="mt-2 text-lg font-semibold text-cyan-100">{creditStatus}</p>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-sm leading-relaxed text-slate-200">{selected.description}</p>
+                  </div>
+  
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-fuchsia-200">Plan options</p>
+                        <p className="mt-1 text-sm text-slate-200">Choose a plan for {selected.name}.</p>
+                      </div>
+                      <p className="text-sm font-semibold text-cyan-100">{formatCurrency(getPriceValue(selected))}</p>
+                    </div>
+  
+                    <div className="space-y-3">
+                      {Object.keys(financingRules).map((type) => {
+                        const rule = financingRules[type];
+                        const downPayment = type === "PrimeCredit"
+                          ? (selected.price < 1000 ? 0 : Math.ceil(selected.price * 0.2))
+                          : type === "Resonance"
+                            ? 0
+                            : Math.ceil(selected.price * 0.1);
+  
+                        const cycles = type === "PrimeCredit"
+                          ? (selected.price < 1000 ? 4 : selected.price <= 5000 ? 8 : 10)
+                          : type === "Resonance"
+                            ? 7
+                            : 3;
+  
+                        const canAfford = current.wallet >= downPayment;
+  
+                        return (
+                          <div key={type} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-white">{rule.label}</p>
+                                <p className="text-xs text-cyan-100">{rule.slogan}</p>
+                                <p className="mt-2 text-xs text-slate-300">Down payment: {formatCurrency(downPayment)}</p>
+                                <p className="text-xs text-slate-300">Cycles: {cycles}</p>
+                                <p className="mt-2 text-xs text-rose-100">Risk: {rule.risk}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => financeItem(selected, type)}
+                                disabled={!canAfford}
+                                className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${canAfford ? "border border-cyan-300/40 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20" : "border border-white/10 bg-white/5 text-slate-400"}`}
+                              >
+                                {canAfford ? "Use plan" : "Need more funds"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+  
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-fuchsia-200">Active financing</p>
+                    {financedItems.length ? (
+                      <div className="mt-3 space-y-3">
+                        {financedItems.map((debt) => (
+                          <div key={debt.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                            <p className="text-sm font-semibold text-white">{debt.itemName}</p>
+                            <p className="text-xs text-slate-300">{debt.type} • {debt.slogan}</p>
+                            <p className="mt-2 text-xs text-slate-200">Remaining balance: {formatCurrency(debt.remainingBalance)}</p>
+                            <p className="text-xs text-slate-200">Payment due: {formatCurrency(debt.paymentDue)}</p>
+                            <p className="text-xs text-slate-200">Cycles left: {debt.cyclesRemaining}</p>
+                            <button
+                              type="button"
+                              onClick={() => processPayment(debt.id)}
+                              className="mt-3 rounded-xl border border-fuchsia-300/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"
+                            >
+                              Process payment
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-200">No active financing contracts yet.</p>
+                    )}
+                  </div>
+                </div>
+  
+                <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
+                  <div className="overflow-hidden rounded-[1.5rem] border border-white/10">
+                    <img src={getItemDisplayImage(selected)} alt="" className="h-64 w-full object-cover" />
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selected.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">{selected.vendor}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-200">{selected.quote || selected.description}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.section>
+        ) : (
+          <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+              {/* Left: Large Product Image */}
+              <div className="relative flex flex-col items-center justify-center bg-gradient-to-br from-black/80 to-slate-900/80 p-8 min-h-[600px]">
+                <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-cyan-300/20 shadow-lg">
+                  <img src={getItemDisplayImage(selected)} alt={selected.name} className="w-full h-full object-cover" />
+                  <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />
+                </div>
+                <div className="mt-6 flex flex-wrap gap-2 justify-center">
+                  {selected.tags.map((tag) => <Badge key={tag} className="border-cyan-300/30 bg-cyan-400/10 text-cyan-100">{tag}</Badge>)}
+                </div>
+                <div className="mt-6 flex flex-col items-center gap-2">
+                  <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-1 text-lg font-bold text-amber-100 flex items-center gap-2">
+                    {formatCurrency(getPriceValue(selected))}
+                  </span>
+                  <span className="rounded-full border border-purple-300/40 bg-purple-500/10 px-4 py-1 text-sm font-semibold text-purple-200">{selected.rarity}</span>
+                </div>
+              </div>
+  
+              {/* Right: Details */}
+              <div className="flex flex-col gap-6 p-8">
+                <div>
+                  <p className="text-base font-semibold text-cyan-300 uppercase tracking-widest">{selected.subtitle}</p>
+                  <h1 className="mt-2 text-5xl font-black tracking-tight text-white drop-shadow-sm">{selected.name}</h1>
+                  <p className="mt-2 text-lg italic text-fuchsia-200">{selected.quote}</p>
+                </div>
+  
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Category</div>
+                    <div className="text-sm text-white">{selected.category}</div>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Manufacturer</div>
+                    <div className="text-sm text-white">{selected.manufacturer}</div>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Rarity Tier</div>
+                    <div className="text-sm text-white">{selected.rarity}</div>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Attunement</div>
+                    <div className="text-sm text-white">{selected.attunement}</div>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4 col-span-2">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Availability</div>
+                    <div className="text-sm text-white">{selected.availability}</div>
+                  </div>
+                </div>
+  
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Leaf className="h-5 w-5 text-fuchsia-200" />
+                      <span className="text-lg font-bold text-fuchsia-200">Item Overview</span>
+                    </div>
+                    <p className="text-sm text-slate-200 leading-relaxed">{selected.description}</p>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <ShieldCheck className="h-5 w-5 text-cyan-200" />
+                      <span className="text-lg font-bold text-cyan-200">Potential Effects</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {selected.features.map((feature) => (
+                        <li key={feature} className="flex gap-2 text-sm text-slate-100">
+                          <ChevronRight className="h-4 w-4 text-fuchsia-300 mt-0.5" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+  
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <span className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">Listing ID: {selected.id}</span>
+                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white">Vendor: {selected.vendor}</span>
+                </div>
+  
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleFavorite(selected.id)}
+                    disabled={favoriteBusy || Boolean(profile && !wishLoaded)}
+                    className="rounded-full border border-fuchsia-300/40 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {favoriteBusy ? "Saving..." : isFavorite(selected.id) ? "Favorited" : "Add to watchlist"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addToCart(selected)}
+                    className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
+                  >
+                    Add to cart
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowFinancingPage(true)}
+                    className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/20"
+                  >
+                    View financing
+                  </button>
+                </div>
+  
+                <div className="flex items-center gap-3 mt-6">
+                  <div className="flex items-center gap-1 text-amber-300">
+                    {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
+                  </div>
+                  <span className="text-xs text-slate-300">{selected.rating ? `${selected.rating} verified rating` : "No ratings yet"}</span>
+                </div>
+              </div>
+            </div>
+          </motion.section>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#050815] text-white">
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(0,215,255,.20),transparent_32%),radial-gradient(circle_at_80%_10%,rgba(220,38,255,.16),transparent_28%),linear-gradient(180deg,#050815,#07111d_45%,#04040a)]" />
@@ -1637,7 +1937,7 @@ export default function LumaPrimeMarketplace() {
                 value={query}
                 onChange={(event) => updateSearch(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && searchQuery) listingPanel.current?.scrollIntoView({ block: "start" });
+                  if (event.key === "Enter" && searchQuery) listingPanel.current?.scrollIntoView?.({ block: "start" });
                 }}
                 placeholder="Search relics, vendors, categories..." className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60" />
             </div>
@@ -1809,6 +2109,8 @@ export default function LumaPrimeMarketplace() {
             </div>
           </div>
         ) : null}
+
+        {searchQuery && storefrontListings}
 
         {isDmAdmin && showDmDashboard && profile ? (
           <section className="mb-6 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
@@ -2038,291 +2340,7 @@ export default function LumaPrimeMarketplace() {
           </div>
         </section>
 
-        <div className="grid w-full min-w-0 gap-6 lg:grid-cols-[280px_1fr]">
-          <aside className="w-full min-w-0 space-y-4">
-            <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-300">Active Listings</p>
-              <div className="listing-scrollbar w-full min-w-0 overflow-x-auto pb-2 snap-x snap-mandatory">
-                <div className="flex w-max gap-3">
-                  {filtered.map((item) => (
-                    <ProductCard
-                      key={item.id}
-                      item={item}
-                      selected={item.id === selected?.id}
-                      isFavorite={isFavorite(item.id)}
-                      onToggleFavorite={handleToggleFavorite}
-                      favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
-                      onAddToCart={addToCart}
-                      onClick={() => openListing(item.id)}
-                      className="w-56 flex-none snap-start"
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-amber-300/20 bg-amber-400/5 p-4">
-              <div className="mb-2 flex items-center gap-2 text-amber-200"><AlertTriangle className="h-4 w-4" /><span className="text-sm font-semibold">Customs Advisory</span></div>
-              <p className="text-xs leading-relaxed text-slate-300">Items marked restricted may trigger port scans, Arrival Visa review, or confiscation in Pearl-controlled territories.</p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Field Reports</p>
-              <div className="mt-3 space-y-3">
-                {worldNotices.map((notice) => (
-                  <WorldNoticeCard key={`${notice.title}-sidebar`} badge={notice.badge} title={notice.title} copy={notice.copy} tone={notice.tone} />
-                ))}
-              </div>
-            </div>
-          </aside>
-
-          {!selected ? (
-            <section ref={listingPanel} className="self-start rounded-[2rem] border border-cyan-300/15 bg-black/35 p-6" role="status">
-              <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
-              {searchQuery && <>
-                <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
-                <button type="button" className={`mt-4 ${accountButton}`} onClick={() => updateSearch("")}>Clear search</button>
-              </>}
-            </section>
-          ) : showFinancingPage ? (
-            <motion.section key={`finance-${selected.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
-              <div className="p-6 sm:p-8">
-                <button
-                  type="button"
-                  onClick={() => setShowFinancingPage(false)}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
-                >
-                  ← Back to listing
-                </button>
-
-                <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                  <div className="space-y-4">
-                    <div className="rounded-3xl border border-cyan-300/15 bg-cyan-400/5 p-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-200">Financing workspace</p>
-                      <h1 className="mt-3 text-3xl font-black text-white sm:text-4xl">{selected.name}</h1>
-                      <p className="mt-2 text-sm text-slate-200">{selected.subtitle}</p>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Current wallet</p>
-                          <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(current.wallet)}</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Credit status</p>
-                          <p className="mt-2 text-lg font-semibold text-cyan-100">{creditStatus}</p>
-                        </div>
-                      </div>
-                      <p className="mt-4 text-sm leading-relaxed text-slate-200">{selected.description}</p>
-                    </div>
-
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-fuchsia-200">Plan options</p>
-                          <p className="mt-1 text-sm text-slate-200">Choose a plan for {selected.name}.</p>
-                        </div>
-                        <p className="text-sm font-semibold text-cyan-100">{formatCurrency(getPriceValue(selected))}</p>
-                      </div>
-
-                      <div className="space-y-3">
-                        {Object.keys(financingRules).map((type) => {
-                          const rule = financingRules[type];
-                          const downPayment = type === "PrimeCredit"
-                            ? (selected.price < 1000 ? 0 : Math.ceil(selected.price * 0.2))
-                            : type === "Resonance"
-                              ? 0
-                              : Math.ceil(selected.price * 0.1);
-
-                          const cycles = type === "PrimeCredit"
-                            ? (selected.price < 1000 ? 4 : selected.price <= 5000 ? 8 : 10)
-                            : type === "Resonance"
-                              ? 7
-                              : 3;
-
-                          const canAfford = current.wallet >= downPayment;
-
-                          return (
-                            <div key={type} className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-white">{rule.label}</p>
-                                  <p className="text-xs text-cyan-100">{rule.slogan}</p>
-                                  <p className="mt-2 text-xs text-slate-300">Down payment: {formatCurrency(downPayment)}</p>
-                                  <p className="text-xs text-slate-300">Cycles: {cycles}</p>
-                                  <p className="mt-2 text-xs text-rose-100">Risk: {rule.risk}</p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => financeItem(selected, type)}
-                                  disabled={!canAfford}
-                                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${canAfford ? "border border-cyan-300/40 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20" : "border border-white/10 bg-white/5 text-slate-400"}`}
-                                >
-                                  {canAfford ? "Use plan" : "Need more funds"}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-fuchsia-200">Active financing</p>
-                      {financedItems.length ? (
-                        <div className="mt-3 space-y-3">
-                          {financedItems.map((debt) => (
-                            <div key={debt.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                              <p className="text-sm font-semibold text-white">{debt.itemName}</p>
-                              <p className="text-xs text-slate-300">{debt.type} • {debt.slogan}</p>
-                              <p className="mt-2 text-xs text-slate-200">Remaining balance: {formatCurrency(debt.remainingBalance)}</p>
-                              <p className="text-xs text-slate-200">Payment due: {formatCurrency(debt.paymentDue)}</p>
-                              <p className="text-xs text-slate-200">Cycles left: {debt.cyclesRemaining}</p>
-                              <button
-                                type="button"
-                                onClick={() => processPayment(debt.id)}
-                                className="mt-3 rounded-xl border border-fuchsia-300/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"
-                              >
-                                Process payment
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-sm text-slate-200">No active financing contracts yet.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
-                    <div className="overflow-hidden rounded-[1.5rem] border border-white/10">
-                      <img src={getItemDisplayImage(selected)} alt="" className="h-64 w-full object-cover" />
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {selected.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}
-                    </div>
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <p className="text-sm font-semibold text-white">{selected.vendor}</p>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-200">{selected.quote || selected.description}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-          ) : (
-            <motion.section ref={listingPanel} key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-                {/* Left: Large Product Image */}
-                <div className="relative flex flex-col items-center justify-center bg-gradient-to-br from-black/80 to-slate-900/80 p-8 min-h-[600px]">
-                  <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-cyan-300/20 shadow-lg">
-                    <img src={getItemDisplayImage(selected)} alt={selected.name} className="w-full h-full object-cover" />
-                    <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />
-                  </div>
-                  <div className="mt-6 flex flex-wrap gap-2 justify-center">
-                    {selected.tags.map((tag) => <Badge key={tag} className="border-cyan-300/30 bg-cyan-400/10 text-cyan-100">{tag}</Badge>)}
-                  </div>
-                  <div className="mt-6 flex flex-col items-center gap-2">
-                    <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-1 text-lg font-bold text-amber-100 flex items-center gap-2">
-                      {formatCurrency(getPriceValue(selected))}
-                    </span>
-                    <span className="rounded-full border border-purple-300/40 bg-purple-500/10 px-4 py-1 text-sm font-semibold text-purple-200">{selected.rarity}</span>
-                  </div>
-                </div>
-
-                {/* Right: Details */}
-                <div className="flex flex-col gap-6 p-8">
-                  <div>
-                    <p className="text-base font-semibold text-cyan-300 uppercase tracking-widest">{selected.subtitle}</p>
-                    <h1 className="mt-2 text-5xl font-black tracking-tight text-white drop-shadow-sm">{selected.name}</h1>
-                    <p className="mt-2 text-lg italic text-fuchsia-200">{selected.quote}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Category</div>
-                      <div className="text-sm text-white">{selected.category}</div>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Manufacturer</div>
-                      <div className="text-sm text-white">{selected.manufacturer}</div>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Rarity Tier</div>
-                      <div className="text-sm text-white">{selected.rarity}</div>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Attunement</div>
-                      <div className="text-sm text-white">{selected.attunement}</div>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4 col-span-2">
-                      <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Availability</div>
-                      <div className="text-sm text-white">{selected.availability}</div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Leaf className="h-5 w-5 text-fuchsia-200" />
-                        <span className="text-lg font-bold text-fuchsia-200">Item Overview</span>
-                      </div>
-                      <p className="text-sm text-slate-200 leading-relaxed">{selected.description}</p>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <ShieldCheck className="h-5 w-5 text-cyan-200" />
-                        <span className="text-lg font-bold text-cyan-200">Potential Effects</span>
-                      </div>
-                      <ul className="space-y-2">
-                        {selected.features.map((feature) => (
-                          <li key={feature} className="flex gap-2 text-sm text-slate-100">
-                            <ChevronRight className="h-4 w-4 text-fuchsia-300 mt-0.5" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    <span className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">Listing ID: {selected.id}</span>
-                    <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white">Vendor: {selected.vendor}</span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleFavorite(selected.id)}
-                      disabled={favoriteBusy || Boolean(profile && !wishLoaded)}
-                      className="rounded-full border border-fuchsia-300/40 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {favoriteBusy ? "Saving..." : isFavorite(selected.id) ? "Favorited" : "Add to watchlist"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => addToCart(selected)}
-                      className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
-                    >
-                      Add to cart
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowFinancingPage(true)}
-                      className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/20"
-                    >
-                      View financing
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-3 mt-6">
-                    <div className="flex items-center gap-1 text-amber-300">
-                      {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
-                    </div>
-                    <span className="text-xs text-slate-300">{selected.rating ? `${selected.rating} verified rating` : "No ratings yet"}</span>
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-          )}
-        </div>
+        {!searchQuery && storefrontListings}
 
         {showCart ? (
           <div className="fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm" onClick={() => setShowCart(false)}>
