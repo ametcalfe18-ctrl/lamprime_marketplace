@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, CreditCard, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins, RefreshCw } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, CreditCard, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins } from "lucide-react";
 import { motion } from "framer-motion";
 import { marketplaceItems as items } from "./data/items";
 
@@ -40,6 +40,214 @@ function localFavorites(userId) {
 }
 
 
+const deliveryLabels = {
+  awaiting_delivery: "Awaiting delivery",
+  dispatched: "Dispatched",
+  delivered: "Delivered"
+};
+const fundingLabels = {
+  pending: "Awaiting DM review",
+  code_issued: "Code issued",
+  redeemed: "Code redeemed",
+  declined: "Declined"
+};
+const accountButton = "rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50";
+const accountInput = "w-full rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-white";
+const accountCard = "rounded-xl border border-white/10 bg-black/25 p-3 text-sm";
+
+function marketplaceRpc(token, name, body = {}) {
+  return supabaseRequest(`/rest/v1/rpc/${name}`, { method: "POST", token, body });
+}
+
+function useMarketplaceList(load, initialPage = 0) {
+  const [page, setPage] = useState(initialPage);
+  const [revision, setRevision] = useState(0);
+  const [result, setResult] = useState({ rows: [], busy: true, error: "" });
+  useEffect(() => {
+    let active = true;
+    setResult({ rows: [], busy: true, error: "" });
+    load(page)
+      .then((rows) => { if (active) setResult({ rows, busy: false, error: "" }); })
+      .catch((error) => { if (active) setResult({ rows: [], busy: false, error: error.message }); });
+    return () => { active = false; };
+  }, [load, page, revision]);
+  return { ...result, page, setPage, refresh: () => setRevision((value) => value + 1) };
+}
+
+function MyOrders({ token }) {
+  const load = useCallback((page) => marketplaceRpc(token, "marketplace_my_orders", { page_offset: page * 20 }), [token]);
+  const { rows, busy, error, page, setPage, refresh } = useMarketplaceList(load);
+
+  return (
+    <section id="my-orders" className="mb-6 rounded-[2rem] border border-cyan-300/15 bg-black/30 p-5" aria-labelledby="my-orders-title">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="my-orders-title" className="text-xl font-bold">My Orders</h2>
+        <button type="button" className={accountButton} disabled={busy} onClick={refresh}>Refresh orders</button>
+      </div>
+      {busy && <p role="status" className="mt-3 text-sm text-slate-300">Loading orders…</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-rose-200">{error}</p>}
+      {!busy && !error && !rows.length && <p className="mt-3 text-sm text-slate-300">{page ? "No more orders." : "Your purchases and requests will appear here."}</p>}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map((order) => {
+          const status = {
+            pending_approval: "Pending DM approval",
+            completed: order.reviewed_at ? "Approved by DM" : "Completed",
+            rejected: "Rejected",
+            cancelled: "Cancelled"
+          }[order.order_status];
+          return (
+            <article key={order.order_id} className={accountCard}>
+              <div className="flex flex-wrap justify-between gap-2">
+                <strong>{status}</strong>
+                <time className="text-slate-300" dateTime={order.ordered_at}>{new Date(order.ordered_at).toLocaleString()}</time>
+              </div>
+              <ul className="my-2 space-y-1">
+                {order.order_items.map((item, index) => (
+                  <li key={index} className="flex justify-between gap-3">
+                    <span>{item.quantity} × {item.name}</span>
+                    <span>{formatCurrency(item.unit_price * item.quantity)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-cyan-100">
+                {formatCurrency(order.order_total)} {order.order_status === "rejected" ? "returned to wallet" : order.order_status === "pending_approval" ? "reserved" : "order total"}
+              </p>
+              {order.delivery_status && <p className="mt-1 text-amber-100">{deliveryLabels[order.delivery_status]}</p>}
+            </article>
+          );
+        })}
+      </div>
+      {(page > 0 || rows.length === 20) && (
+        <div className="mt-3 flex gap-2">
+          <button type="button" className={accountButton} disabled={!page || busy} onClick={() => setPage(page - 1)}>Newer orders</button>
+          <button type="button" className={accountButton} disabled={rows.length < 20 || busy} onClick={() => setPage(page + 1)}>Older orders</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FundingRequests({ token, isDm = false }) {
+  const load = useCallback(() => marketplaceRpc(token, "marketplace_funding_history", { include_all: isDm }), [token, isDm]);
+  const { rows, busy, error, refresh } = useMarketplaceList(load);
+  const [sheet, setSheet] = useState("");
+  const [amount, setAmount] = useState("");
+  const [working, setWorking] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [issued, setIssued] = useState(null);
+  const actionInProgress = useRef(false);
+  const requestAttempt = useRef(null);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (actionInProgress.current) return;
+    actionInProgress.current = true;
+    setWorking(true);
+    setNotice(null);
+    const url = sheet.trim();
+    const value = Number(amount);
+    if (requestAttempt.current?.url !== url || requestAttempt.current?.value !== value) {
+      requestAttempt.current = { id: crypto.randomUUID(), url, value };
+    }
+    try {
+      await marketplaceRpc(token, "marketplace_request_funding", {
+        request_id: requestAttempt.current.id, sheet_url: url, requested_lumina: value
+      });
+      requestAttempt.current = null;
+      setAmount("");
+      setNotice({ text: "Request sent to your DM." });
+      refresh();
+    } catch (error) {
+      setNotice({ text: error.message, error: true });
+    } finally {
+      actionInProgress.current = false;
+      setWorking(false);
+    }
+  }
+
+  async function review(request, approve) {
+    if (actionInProgress.current || issued) return;
+    if (approve && !window.confirm(`Have you verified the character and recorded the campaign transfer for ${formatCurrency(request.amount)}?`)) return;
+    actionInProgress.current = true;
+    setWorking(true);
+    setNotice(null);
+    try {
+      const code = await marketplaceRpc(token, "dm_marketplace_review_funding", { target_request: request.request_id, approve });
+      if (approve) setIssued({ code, player: request.player_name });
+      else setNotice({ text: "Funding request declined." });
+      refresh();
+    } catch (error) {
+      setNotice({ text: error.message, error: true });
+      refresh();
+    } finally {
+      actionInProgress.current = false;
+      setWorking(false);
+    }
+  }
+
+  return (
+    <section className="mt-4 space-y-3 border-t border-white/10 pt-4" aria-label={isDm ? "Character Funding Requests" : "D&D Beyond Funding"}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold">{isDm ? "Character Funding Requests" : "D&D Beyond Funding"}</h3>
+        <button type="button" className={accountButton} disabled={busy || working} onClick={refresh}>Refresh requests</button>
+      </div>
+      {!isDm && (
+        <form onSubmit={submit} className="grid gap-3">
+          <p className="text-sm text-slate-300">Send your character sheet and the amount you want to load. Your DM verifies the transfer and gives you a one-time code to redeem above.</p>
+          <label className="grid gap-1 text-sm">
+            Character sheet link
+            <input type="url" required maxLength={500} value={sheet} onChange={(event) => setSheet(event.target.value)} className={accountInput} placeholder="https://www.dndbeyond.com/characters/123456" />
+          </label>
+          <label className="grid gap-1 text-sm">
+            Requested Lumina
+            <input type="number" required min="1" max="1000000000" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className={accountInput} />
+          </label>
+          <button type="submit" disabled={working} className={accountButton}>{working ? "Sending…" : "Request funding"}</button>
+        </form>
+      )}
+      {notice && <p role={notice.error ? "alert" : "status"} className={notice.error ? "text-sm text-rose-200" : "text-sm text-emerald-200"}>{notice.text}</p>}
+      {issued && (
+        <div className={accountCard}>
+          <p>Copy this one-time code for {issued.player}. Save it before closing this panel.</p>
+          <code className="my-2 block select-all break-all text-amber-100">{issued.code}</code>
+          <div className="flex gap-2">
+            <button type="button" className={accountButton} onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(issued.code);
+                setNotice({ text: "Code copied." });
+              } catch {
+                setNotice({ text: "Select and copy the code above.", error: true });
+              }
+            }}>Copy code</button>
+            <button type="button" className={accountButton} onClick={() => setIssued(null)}>Done with code</button>
+          </div>
+        </div>
+      )}
+      {busy && <p role="status" className="text-sm text-slate-300">Loading funding requests…</p>}
+      {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
+      {!busy && !error && !rows.length && <p className="text-sm text-slate-300">No funding requests yet.</p>}
+      {rows.length > 0 && <div className="max-h-96 space-y-2 overflow-y-auto">
+        {rows.map((request) => (
+          <article key={request.request_id} className={accountCard}>
+            <div className="flex flex-wrap justify-between gap-2">
+              <strong>{isDm ? `${request.player_name} · ` : ""}{formatCurrency(request.amount)}</strong>
+              <span className="text-amber-100">{fundingLabels[request.request_status]}</span>
+            </div>
+            <a href={request.character_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-cyan-200 underline">View character sheet</a>
+            <time className="ml-2 text-xs text-slate-300" dateTime={request.requested_at}>{new Date(request.requested_at).toLocaleDateString()}</time>
+            {isDm && request.request_status === "pending" && (
+              <div className="mt-2 flex gap-2">
+                <button type="button" className={accountButton} disabled={working || Boolean(issued)} onClick={() => review(request, true)}>Issue code</button>
+                <button type="button" className={accountButton} disabled={working || Boolean(issued)} onClick={() => review(request, false)}>Decline</button>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>}
+    </section>
+  );
+}
+
 function Badge({ children, className = "" }) {
   return <span className={`rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 ${className}`}>{children}</span>;
 }
@@ -70,7 +278,7 @@ function WorldNoticeCard({ badge, title, copy, tone = "cyan" }) {
   );
 }
 
-function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, onAddToCart, className = "" }) {
+function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, className = "" }) {
   return (
     <div className={`overflow-hidden rounded-2xl border text-left transition ${selected ? "border-fuchsia-400/70 bg-fuchsia-400/10" : "border-white/10 bg-white/[0.03] hover:border-cyan-300/50 hover:bg-white/[0.06]"} ${className}`}>
       <button onClick={onClick} className="group w-full">
@@ -92,6 +300,8 @@ function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, on
               event.stopPropagation();
               onToggleFavorite?.(item.id);
             }}
+            disabled={favoriteDisabled}
+            aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`}
             className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-100 transition hover:border-fuchsia-300/60"
           >
             <Heart className={`h-4 w-4 ${isFavorite ? "fill-fuchsia-300 text-fuchsia-300" : "text-slate-200"}`} />
@@ -293,21 +503,18 @@ export default function LumaPrimeMarketplace() {
   const [depositCode, setDepositCode] = useState("");
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [favorites, setFavorites] = useState([]);
+  const [wishError, setWishError] = useState("");
+  const [wishLoaded, setWishLoaded] = useState(false);
+  const [wishRevision, setWishRevision] = useState(0);
+  const wishInProgress = useRef(false);
+  const accountToken = useRef(sessionToken);
+  const [showOrders, setShowOrders] = useState(false);
+  const [ordersRevision, setOrdersRevision] = useState(0);
+  const [walletNotice, setWalletNotice] = useState(null);
+  const [dmOrderError, setDmOrderError] = useState("");
   const [status, setStatus] = useState({ message: "Log in to save favorites and unlock your dashboard.", tone: "info" });
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
-  const [ddbSyncing, setDdbSyncing] = useState(false);
-  const [ddbSheetUrl, setDdbSheetUrl] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
-
-    try {
-      return window.localStorage.getItem("luma-prime-ddb-sheet-url") || "";
-    } catch {
-      return "";
-    }
-  });
   const [showFilters, setShowFilters] = useState(false);
   const [sortMode, setSortMode] = useState("featured");
   const [selectedTag, setSelectedTag] = useState("All");
@@ -387,14 +594,6 @@ export default function LumaPrimeMarketplace() {
 
     window.localStorage.setItem("luma-prime-cart", JSON.stringify(cart));
   }, [cart]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem("luma-prime-ddb-sheet-url", ddbSheetUrl);
-  }, [ddbSheetUrl]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -718,7 +917,6 @@ export default function LumaPrimeMarketplace() {
           lastLoginAt: user.last_sign_in_at,
           loginCount: 1
         });
-        setFavorites(localFavorites(user.id));
         setWalletBalance(row?.lumina_balance ?? 0);
         const adminCheck = await supabaseRequest("/rest/v1/rpc/is_dm_admin", { method: "POST", token: sessionToken, body: {} });
         if (!active) return;
@@ -739,6 +937,33 @@ export default function LumaPrimeMarketplace() {
     loadProfile();
     return () => { active = false; };
   }, [sessionToken]);
+
+  useEffect(() => {
+    accountToken.current = sessionToken;
+  }, [sessionToken]);
+
+  const playerId = profile?.id;
+  useEffect(() => {
+    setWishLoaded(false);
+    setWishError("");
+    if (!playerId || !sessionToken) return;
+    let active = true;
+    const legacy = localFavorites(playerId).filter((id) => typeof id === "string");
+    marketplaceRpc(sessionToken, "marketplace_wish_list", { legacy_ids: legacy })
+      .then((saved) => {
+        if (!active) return;
+        setFavorites(saved);
+        setWishLoaded(true);
+        try { localStorage.removeItem(`luma-prime-favorites-${playerId}`); }
+        catch { /* Migration is safe to repeat. */ }
+      })
+      .catch((error) => {
+        if (!active) return;
+        setFavorites(legacy);
+        setWishError(error.message);
+      });
+    return () => { active = false; };
+  }, [playerId, sessionToken, wishRevision]);
 
   const handleAuthSubmit = async (event) => {
     event.preventDefault();
@@ -776,7 +1001,15 @@ export default function LumaPrimeMarketplace() {
 
   const handleLogout = async () => {
     if (checkoutInProgress.current) return;
+    accountToken.current = null;
     setCheckoutMessage(null);
+    setShowOrders(false);
+    setWalletNotice(null);
+    setDepositCode("");
+    setDmOrders([]);
+    setDmTransactions([]);
+    setDmOrderError("");
+    setWishLoaded(false);
     if (sessionToken) {
       try { await supabaseRequest("/auth/v1/logout", { method: "POST", token: sessionToken }); }
       catch { /* Clear local session regardless. */ }
@@ -822,16 +1055,18 @@ export default function LumaPrimeMarketplace() {
   const loadDmCommerce = async () => {
     if (!isDmAdmin || !sessionToken) return;
     setDmBusy(true);
+    setDmOrderError("");
     try {
       const [transactions, orders] = await Promise.all([
         supabaseRequest("/rest/v1/rpc/dm_list_transactions", { method: "POST", token: sessionToken, body: {} }),
-        supabaseRequest("/rest/v1/rpc/dm_list_marketplace_orders", { method: "POST", token: sessionToken, body: {} })
+        marketplaceRpc(sessionToken, "dm_marketplace_orders_with_delivery")
       ]);
+      if (accountToken.current !== sessionToken) return;
       setDmTransactions(transactions);
       setDmOrders(orders);
       await loadInventory();
     } catch (error) {
-      setStatus({ message: `Could not load DM commerce: ${error.message}`, tone: "warning" });
+      setDmOrderError(error.message);
     } finally { setDmBusy(false); }
   };
 
@@ -864,6 +1099,26 @@ export default function LumaPrimeMarketplace() {
       setStatus({ message: `Order ${approve ? "approved" : "rejected and refunded"}.`, tone: "success" });
     } catch (error) { setStatus({ message: `Order review failed: ${error.message}`, tone: "warning" }); }
     finally { setDmBusy(false); }
+  };
+
+  const updateDelivery = async (orderId, deliveryStatus) => {
+    if (dmBusy || !isDmAdmin || !sessionToken) return;
+    setDmBusy(true);
+    setDmOrderError("");
+    try {
+      await marketplaceRpc(sessionToken, "dm_marketplace_set_delivery", {
+        target_order: orderId, new_status: deliveryStatus
+      });
+      if (accountToken.current !== sessionToken) return;
+      setDmOrders((orders) => orders.map((order) =>
+        order.order_id === orderId ? { ...order, delivery_status: deliveryStatus } : order
+      ));
+      setOrdersRevision((revision) => revision + 1);
+    } catch (error) {
+      setDmOrderError(error.message);
+    } finally {
+      setDmBusy(false);
+    }
   };
 
   const checkoutCart = async () => {
@@ -900,6 +1155,7 @@ export default function LumaPrimeMarketplace() {
       delete savedKeys[cartSignature];
       sessionStorage.setItem(checkoutStorageKey, JSON.stringify(savedKeys));
       setWalletBalance(result.balance);
+      setOrdersRevision((revision) => revision + 1);
       setCart([]);
       const messages = [];
       if (result.purchase_id) messages.push(`Purchase complete. ${formatCurrency(result.purchased_total)} spent.`);
@@ -959,6 +1215,7 @@ export default function LumaPrimeMarketplace() {
       return;
     }
     setRedeemingCode(true);
+    setWalletNotice(null);
     try {
       const newBalance = await supabaseRequest("/rest/v1/rpc/redeem_lumina_code", {
         method: "POST",
@@ -968,19 +1225,15 @@ export default function LumaPrimeMarketplace() {
       if (!Number.isSafeInteger(newBalance) || newBalance < 0) {
         throw new Error("Redemption response was unexpected. Refresh and check your wallet.");
       }
+      if (accountToken.current !== sessionToken) return;
       setWalletBalance(newBalance);
       setDepositCode("");
-      setStatus({ message: `Deposit redeemed! Your wallet now holds ${formatCurrency(newBalance)}.`, tone: "success" });
+      setWalletNotice({ text: `Deposit redeemed. Your wallet now holds ${formatCurrency(newBalance)}.` });
     } catch (error) {
-      setStatus({ message: `Code redemption failed: ${error.message}`, tone: "warning" });
+      if (accountToken.current === sessionToken) setWalletNotice({ text: error.message, error: true });
     } finally {
       setRedeemingCode(false);
     }
-  };
-
-  const syncDndBeyondGold = async (event) => {
-    event.preventDefault();
-    setStatus({ message: "D&D Beyond wallet syncing is temporarily unavailable while we build secure verification. It cannot add Lumina yet.", tone: "warning" });
   };
 
   const handleToggleFavorite = async (itemId) => {
@@ -988,11 +1241,21 @@ export default function LumaPrimeMarketplace() {
       setStatus({ message: "Log in to save favorites.", tone: "warning" });
       return;
     }
-    // Device-local until a secured, shared Wish Vault is implemented.
-    const next = favorites.includes(itemId) ? favorites.filter((id) => id !== itemId) : [...favorites, itemId];
-    localStorage.setItem(`luma-prime-favorites-${profile.id}`, JSON.stringify(next));
-    setFavorites(next);
-    setStatus({ message: "Wish Vault updated on this device.", tone: "success" });
+    if (!wishLoaded || wishInProgress.current) return;
+    wishInProgress.current = true;
+    setFavoriteBusy(true);
+    setWishError("");
+    const saved = !favorites.includes(itemId);
+    try {
+      await marketplaceRpc(sessionToken, "marketplace_wish_set", { target_product: itemId, saved });
+      if (accountToken.current !== sessionToken) return;
+      setFavorites((previous) => saved ? [...previous, itemId] : previous.filter((id) => id !== itemId));
+    } catch (error) {
+      if (accountToken.current === sessionToken) setWishError(error.message);
+    } finally {
+      wishInProgress.current = false;
+      setFavoriteBusy(false);
+    }
   };
 
   const addToCart = (item) => {
@@ -1111,6 +1374,9 @@ export default function LumaPrimeMarketplace() {
                     {showDmDashboard ? "Hide DM Dashboard" : "DM Dashboard"}
                   </button>
                 ) : null}
+                <button type="button" className={`w-full ${accountButton}`} aria-expanded={showOrders} aria-controls={showOrders ? "my-orders" : undefined} onClick={() => setShowOrders((visible) => !visible)}>
+                  {showOrders ? "Hide My Orders" : "My Orders"}
+                </button>
                 <button onClick={handleLogout} disabled={checkoutBusy} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
                   Log out
                 </button>
@@ -1237,6 +1503,8 @@ export default function LumaPrimeMarketplace() {
           </div>
         ) : null}
 
+        {profile && showOrders && <MyOrders key={`${profile.id}-${ordersRevision}`} token={sessionToken} />}
+
         {isDmAdmin && showDmDashboard && profile ? (
           <section className="mb-6 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">DM Only</p>
@@ -1258,14 +1526,28 @@ export default function LumaPrimeMarketplace() {
                 <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(generatedDmCode); setStatus({ message: "Code copied to clipboard.", tone: "success" }); } catch { setStatus({ message: "Copy failed. Select the code above and copy it manually.", tone: "warning" }); } }} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-white">Copy code</button>
               </div>
             ) : null}
+            <FundingRequests key={profile.id} token={sessionToken} isDm />
             <div className="mt-6 border-t border-white/10 pt-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-white">Orders, Inventory & Transactions</h3>
                 <button type="button" disabled={dmBusy} onClick={loadDmCommerce} className="rounded-xl border border-amber-300/40 px-4 py-2 text-sm text-amber-100">{dmBusy ? "Working..." : "Load / Refresh Commerce"}</button>
               </div>
+              {dmOrderError && <p role="alert" className="text-sm text-rose-200">{dmOrderError}</p>}
               {dmOrders.length > 0 && <div className="space-y-2"><h4 className="font-semibold text-amber-100">Orders</h4>{dmOrders.map((o) => <div key={o.order_id} className="rounded-xl border border-white/10 p-3 text-sm text-white">
                 <div className="flex flex-wrap justify-between gap-2"><span>{o.player_name} — {formatCurrency(o.order_total)}</span><span>{o.order_status}</span></div>
                 <p className="text-xs text-slate-300">{o.order_items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
+                {o.order_status === "completed" && (
+                  <label className="mt-2 flex flex-wrap items-center gap-2">
+                    Delivery status
+                    <select
+                      className="rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-white"
+                      value={o.delivery_status || "awaiting_delivery"} disabled={dmBusy}
+                      onChange={(event) => updateDelivery(o.order_id, event.target.value)}
+                    >
+                      {Object.entries(deliveryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                )}
                 {o.order_status === "pending_approval" && <div className="mt-2 flex gap-2"><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,true)} className="rounded-lg border border-emerald-300/50 px-3 py-1">Approve</button><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,false)} className="rounded-lg border border-rose-300/50 px-3 py-1">Reject & Refund</button></div>}
               </div>)}</div>}
               {inventory.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Inventory — select Edit to set stock and approval</h4><div className="max-h-64 space-y-1 overflow-y-auto">{inventory.map((p) => <div key={p.product_id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-2 text-xs text-white"><span>{p.product_name} — {p.stock_quantity === null ? "Unlimited" : `${p.stock_quantity} left`} {p.requires_dm_approval ? "• Approval" : ""} {!p.is_active ? "• Hidden" : ""}</span><button disabled={dmBusy} onClick={() => updateDmInventory(p)} className="rounded border border-amber-300/40 px-2 py-1">Edit</button></div>)}</div></div>}
@@ -1347,24 +1629,9 @@ export default function LumaPrimeMarketplace() {
             )}
 
             <div className="mt-4 rounded-[2rem] border border-cyan-300/15 bg-slate-950/60 p-5 backdrop-blur">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">D&D Beyond wallet link</p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-200">D&D Beyond syncing is temporarily unavailable until we can verify character funds securely. It will not change your Lumina wallet.</p>
-                </div>
-                <span className="rounded-full border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold text-cyan-100">{"Sync pending"}</span>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">LumaPrime wallet</p>
-                  <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(current.wallet)}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">D&D Beyond gold</p>
-                  <p className="mt-2 text-2xl font-bold text-cyan-100">{"Not connected"}</p>
-                </div>
-              </div>
+              <h3 className="text-sm font-bold text-cyan-100">Lumina Wallet</h3>
+              <p className="mt-2 text-2xl font-bold text-white">{profile ? formatCurrency(current.wallet) : "Sign in to see your balance"}</p>
+              <p className="mt-1 text-xs text-slate-300">Refresh the page to see balance changes made by your DM.</p>
 
               <form onSubmit={redeemDepositCode} className="mt-4 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/5 p-4">
                 <div>
@@ -1391,33 +1658,22 @@ export default function LumaPrimeMarketplace() {
                 </div>
               </form>
 
-              <form onSubmit={syncDndBeyondGold} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
-                <input
-                  type="url"
-                  value={ddbSheetUrl}
-                  onChange={(event) => setDdbSheetUrl(event.target.value)}
-                  placeholder="https://www.dndbeyond.com/profile/yourname/characters/123456"
-                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
-                />
-                <button
-                  type="submit"
-                  disabled
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  <RefreshCw className={`h-4 w-4 ${ddbSyncing ? "animate-spin" : ""}`} />
-                  {"Sync unavailable"}
-                </button>
-              </form>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                <Coins className="h-4 w-4 text-amber-200" />
-                <span>Secure D&D Beyond syncing is not enabled yet.</span>
-              </div>
+              {walletNotice && (
+                <p role={walletNotice.error ? "alert" : "status"} className={`mt-2 text-sm ${walletNotice.error ? "text-rose-200" : "text-emerald-200"}`}>{walletNotice.text}</p>
+              )}
+              {profile && <FundingRequests key={profile.id} token={sessionToken} />}
             </div>
           </div>
 
           <div className="rounded-[2rem] border border-amber-300/15 bg-amber-400/5 p-5 backdrop-blur">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-200">Saved Favorites</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-200">Wish Vault</p>
+            {wishError && (
+              <div className="mt-2 space-y-2">
+                <p role="alert" className="text-sm text-rose-200">{wishError}</p>
+                <button type="button" className={accountButton} onClick={() => setWishRevision((revision) => revision + 1)}>Refresh Wish Vault</button>
+              </div>
+            )}
+            {profile && !wishLoaded && !wishError && <p role="status" className="mt-2 text-sm text-slate-300">Loading Wish Vault…</p>}
             <div className="mt-3 space-y-2">
               {favorites.length ? (
                 favorites.map((itemId) => {
@@ -1433,7 +1689,7 @@ export default function LumaPrimeMarketplace() {
                   ) : null;
                 })
               ) : (
-                <p className="text-sm leading-relaxed text-slate-200">Your watchlist is empty. Save a few listings to keep them close at hand.</p>
+                (!profile || wishLoaded) && <p className="text-sm text-slate-300">{profile ? "Your Wish Vault is empty." : "Sign in to open your Wish Vault."}</p>
               )}
             </div>
           </div>
@@ -1467,6 +1723,7 @@ export default function LumaPrimeMarketplace() {
                       selected={item.id === selected.id}
                       isFavorite={isFavorite(item.id)}
                       onToggleFavorite={handleToggleFavorite}
+                      favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
                       onAddToCart={addToCart}
                       onClick={() => setSelectedId(item.id)}
                       className="w-56 flex-none snap-start"
@@ -1698,7 +1955,7 @@ export default function LumaPrimeMarketplace() {
                     <button
                       type="button"
                       onClick={() => handleToggleFavorite(selected.id)}
-                      disabled={favoriteBusy}
+                      disabled={favoriteBusy || Boolean(profile && !wishLoaded)}
                       className="rounded-full border border-fuchsia-300/40 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {favoriteBusy ? "Saving..." : isFavorite(selected.id) ? "Favorited" : "Add to watchlist"}
