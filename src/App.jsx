@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
 import { fieldAdInterval, getFieldAds } from "./fieldAds";
 import { offerLabel, priceCartLines } from "./marketplaceOffers";
+import { alternateDocumentArtworkFor, documentArtworkFor } from "./documentArtwork";
 import { componentArtworkFor } from "./componentArtwork";
 import waveLogo from "./liquid-light-logo.webp";
 import coinArtwork from "./coin.webp";
@@ -709,7 +710,7 @@ const listingArtwork = {
 };
 
 function ListingImage({ item, ...props }) {
-  const bundledArtwork = listingArtwork[item.id] || componentArtworkFor(item.id);
+  const bundledArtwork = documentArtworkFor(item.id) || listingArtwork[item.id] || componentArtworkFor(item.id);
   const suppliedImage = item.image && !item.image.startsWith("/images/") ? item.image : null;
   return <img {...props} src={suppliedImage || bundledArtwork || buildPlaceholderImage(item)} onError={({ currentTarget }) => {
     const failedSource = currentTarget.getAttribute("src");
@@ -1480,6 +1481,7 @@ export default function LumaPrimeMarketplace() {
   }
 
   function renderProductDetails(selected, product) {
+    const documentArtwork = documentArtworkFor(selected.id);
     const selectedPurchasable = hasStock(product);
     const offer = listingOffer(selected);
     const bundlePartner = offer && selected.offer?.kind === "bundle" ? items.find((item) => item.id === selected.offer.partner_id) : null;
@@ -1492,10 +1494,16 @@ export default function LumaPrimeMarketplace() {
           <div className="product-detail-grid">
             {/* Left: Large Product Image */}
             <div className="product-detail-art">
-              <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-mint-300/20 shadow-lg">
-                <ListingImage item={selected} alt={selected.name} className="w-full h-full object-cover" />
-                {!componentArtworkFor(selected.id) && <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />}
+              <div className={`relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-mint-300/20 shadow-lg ${documentArtwork ? "bg-[#10150f]" : ""}`}>
+                <ListingImage item={selected} alt={selected.name} className={`w-full h-full ${documentArtwork ? "object-contain" : "object-cover"}`} />
+                {!documentArtwork && !componentArtworkFor(selected.id) && <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />}
               </div>
+              {documentArtwork && <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm text-amber-100">
+                <a href={documentArtwork} target="_blank" rel="noopener noreferrer" className="underline">View full artwork</a>
+                {alternateDocumentArtworkFor(selected.id).map(({ label, url }) => (
+                  <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="underline">{label}</a>
+                ))}
+              </div>}
               <div className="mt-6 flex flex-wrap gap-2 justify-center">
                 {selected.tags.map((tag) => <Badge key={tag} className="border-mint-300/30 bg-mint-400/10 text-mint-100">{tag}</Badge>)}
               </div>
@@ -1545,7 +1553,7 @@ export default function LumaPrimeMarketplace() {
                     <Leaf className="h-5 w-5 text-amber-200" />
                     <span className="text-lg font-bold text-amber-200">Item Overview</span>
                   </div>
-                  <p className="text-sm text-slate-200 leading-relaxed">{selected.description}</p>
+                  <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-line">{selected.description}</p>
                 </div>
                 <div className="rounded-2xl border border-mint-300/20 bg-mint-400/10 p-4">
                   <div className="flex items-center gap-2 mb-2">
