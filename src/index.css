@@ -78,9 +78,9 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
   border-radius: 20px;
 }
 
-.store-brand { display: inline-flex; align-items: center; gap: 0; text-decoration: none; }
-.store-brand > img { width: 82px; height: 54px; margin-right: -28px; object-fit: contain; transform: translateY(-5px) scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
-.store-wordmark { position: relative; white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; text-shadow: 0 1px 3px #0b1d15; }
+.store-brand { position: relative; isolation: isolate; display: inline-flex; align-items: center; min-height: 54px; padding-inline-start: 29px; text-decoration: none; }
+.store-brand > img { position: absolute; z-index: -1; top: calc(50% - 5px); left: 0; width: 113px; height: 60px; max-width: none; transform: translateY(-50%) scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
+.store-wordmark { white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; text-shadow: 0 1px 4px #0b1d15, 0 0 5px #0b1d15b3; }
 .store-wordmark em { color: var(--gold); font-style: normal; }
 .store-search { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .store-search-input {
@@ -303,7 +303,8 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 @media (max-width: 630px) {
   .store-main { width: calc(100% - 24px); padding-top: 12px; }
   .store-header { grid-template-columns: minmax(0, 1fr) auto; padding: 9px 10px; gap: 8px; margin-bottom: 12px; }
-  .store-brand > img { width: 53px; height: 38px; margin-right: -17px; transform: translateY(-3px) scaleX(-1); }
+  .store-brand { min-height: 38px; padding-inline-start: 20px; }
+  .store-brand > img { top: calc(50% - 3px); width: 80px; height: 43px; }
   .store-search { grid-column: 1 / -1; grid-row: 2; }
   .store-account { grid-column: 2; grid-row: 1; }
   .store-account-toggle { max-width: 112px; min-height: 38px; font-size: .78rem; }
