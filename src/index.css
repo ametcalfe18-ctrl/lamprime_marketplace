@@ -78,10 +78,11 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
   border-radius: 20px;
 }
 
-.store-brand { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
-.store-brand img { width: 84px; height: 54px; object-fit: contain; transform: scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
-.store-wordmark { white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; }
+.store-brand { display: inline-flex; align-items: center; gap: 0; text-decoration: none; }
+.store-brand > img { width: 82px; height: 54px; margin-right: -8px; object-fit: contain; transform: scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
+.store-wordmark { position: relative; isolation: isolate; white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; }
 .store-wordmark em { color: var(--gold); font-style: normal; }
+.wordmark-ribbon { position: absolute; z-index: -1; pointer-events: none; bottom: -45%; left: -5%; width: 109%; height: 98%; max-width: none; object-fit: fill; opacity: .64; filter: drop-shadow(0 0 6px #54e58975); mask-image: linear-gradient(90deg, transparent, #000 17%, #000 78%, transparent); }
 .store-search { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .store-search-input {
   width: 100%;
@@ -201,7 +202,8 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 .market-heading p { color: #495643; font-size: .8rem; margin-top: 3px; overflow-wrap: anywhere; }
 .catalog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .spotlight-empty { padding: 18px; border: 1px solid #e3cf9b; border-radius: 12px; background: #fffdf5; color: #495643; }
-.spotlight-badge { position: absolute; top: 9px; left: 9px; border-radius: 6px; padding: 3px 7px; background: #ffefb5; color: #233b2b; font-size: .7rem; font-weight: 750; pointer-events: none; }
+.spotlight-badges { position: absolute; top: 9px; left: 9px; right: 44px; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
+.spotlight-badge { border-radius: 6px; padding: 3px 7px; background: #ffefb5; color: #233b2b; font-size: .7rem; font-weight: 750; }
 .catalog-page-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .catalog-page-heading p { color: #495643; font-size: .88rem; overflow-wrap: anywhere; }
 .catalog-back { display: inline-flex; align-items: center; gap: 4px; color: #28634a; font-size: .88rem; font-weight: 700; }
@@ -219,6 +221,9 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 .listing-summary-title { display: grid; gap: 2px; overflow-wrap: anywhere; }
 .listing-summary-title strong { font-family: Geist, system-ui, sans-serif; font-size: 1rem; }
 .listing-summary-title > span { color: #495643; font-family: Geist, system-ui, sans-serif; font-size: .77rem; }
+.listing-summary-title > .listing-summary-offer, .catalog-card-offer { color: #634807; font-size: .76rem; font-weight: 750; }
+.catalog-card-offer { margin-bottom: 6px; }
+.listing-offer { width: fit-content; border: 1px solid #cdab60; border-radius: 8px; padding: 5px 9px; background: #ffeab1; color: #27372a; font-size: .86rem; font-weight: 750; }
 .listing-summary .listing-price { color: #684b12; font-family: Geist, system-ui, sans-serif; font-size: .94rem; font-weight: 750; }
 .listing-price { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 7px; }
 .listing-price del { opacity: .8; font-size: .83em; font-weight: 550; }
@@ -299,7 +304,7 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 @media (max-width: 630px) {
   .store-main { width: calc(100% - 24px); padding-top: 12px; }
   .store-header { grid-template-columns: minmax(0, 1fr) auto; padding: 9px 10px; gap: 8px; margin-bottom: 12px; }
-  .store-brand img { width: 53px; height: 38px; }
+  .store-brand > img { width: 53px; height: 38px; margin-right: -5px; }
   .store-search { grid-column: 1 / -1; grid-row: 2; }
   .store-account { grid-column: 2; grid-row: 1; }
   .store-account-toggle { max-width: 112px; min-height: 38px; font-size: .78rem; }

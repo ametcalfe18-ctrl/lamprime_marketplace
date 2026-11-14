@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
 import { fieldAdInterval, getFieldAds } from "./fieldAds";
+import { offerLabel, priceCartLines } from "./marketplaceOffers";
 import waveLogo from "./liquid-light-logo.webp";
 import coinArtwork from "./coin.webp";
 import braceletArtwork from "./bracelets.webp";
@@ -145,12 +146,13 @@ function catalogItem(product, original = {}) {
     createdAt: product.created_at || null,
     regularPrice: details.regular_price == null ? null : Number(details.regular_price),
     buzz: details.buzz === true,
+    offer: details.offer || null,
     rarity: original.rarity === "Platinum Curated Artifact Package" && product.rarity === "Artifact" ? original.rarity : product.rarity,
     availability: product.stock_quantity === null ? "Unlimited stock" : product.stock_quantity > 0 ? `${product.stock_quantity} available` : "Sold out"
   };
 }
 
-function ListingEditor({ product, original, onSave, onClose }) {
+function ListingEditor({ product, original, inventory, onSave, onClose }) {
   const [listingId] = useState(() => product?.product_id || `LP-${crypto.randomUUID()}`);
   const [form, setForm] = useState(() => {
     const item = product ? catalogItem(product, original) : {};
@@ -160,6 +162,7 @@ function ListingEditor({ product, original, onSave, onClose }) {
       image: item.image?.startsWith("https://") ? item.image : "",
       rarity: product?.rarity || "Common", price: product ? String(product.price) : "",
       regularPrice: item.regularPrice == null ? "" : String(item.regularPrice), buzz: Boolean(item.buzz),
+      offerKind: item.offer?.kind || "", offerPercent: item.offer ? String(item.offer.percent) : "", offerPartner: item.offer?.partner_id || "",
       stock: product?.stock_quantity == null ? "" : String(product.stock_quantity),
       approval: product?.requires_dm_approval ?? false, active: product?.is_active ?? true
     };
@@ -168,6 +171,7 @@ function ListingEditor({ product, original, onSave, onClose }) {
   const [error, setError] = useState("");
   const saving = useRef(false);
   const rare = listingRarities.indexOf(form.rarity) >= 2;
+  const bundleOptions = inventory.filter((entry) => entry.product_id !== listingId && entry.is_active && entry.requires_dm_approval === (rare || form.approval));
   const set = (field, value) => setForm((previous) => ({ ...previous, [field]: value }));
 
   async function submit(event) {
@@ -179,6 +183,9 @@ function ListingEditor({ product, original, onSave, onClose }) {
     try {
       if (form.regularPrice !== "" && Number(form.regularPrice) <= Number(form.price)) {
         throw new Error("The regular price must be higher than the current price.");
+      }
+      if (form.offerKind === "bundle" && !bundleOptions.some((entry) => entry.product_id === form.offerPartner)) {
+        throw new Error("Choose a bundle partner with the same DM approval setting.");
       }
       await onSave({
         listing_id: listingId, expected_updated_at: product?.updated_at || null,
@@ -226,6 +233,31 @@ function ListingEditor({ product, original, onSave, onClose }) {
           <input className={accountInput} type="url" maxLength={1200} value={form.image} onChange={(event) => set("image", event.target.value)} placeholder="https://…" />
         </label>
       </div>
+      <fieldset className="grid gap-3 rounded-xl border border-amber-300/25 p-3 sm:grid-cols-2">
+        <legend className="px-2 font-semibold text-amber-100">Checkout offer</legend>
+        <label className="grid gap-1">Offer type
+          <select className={accountInput} value={form.offerKind} onChange={(event) => set("offerKind", event.target.value)}>
+            <option value="">No automatic offer</option>
+            <option value="percent">Percentage off</option>
+            <option value="bogo">Buy one, get one</option>
+            <option value="bundle">Bundle and save</option>
+          </select>
+        </label>
+        {form.offerKind && <label className="grid gap-1">Discount percentage
+          <input className={accountInput} type="number" min="1" max="100" step="1" required value={form.offerPercent} onChange={(event) => set("offerPercent", event.target.value)} />
+        </label>}
+        {form.offerKind === "bundle" && <label className="grid gap-1 sm:col-span-2">Discounted bundle item
+          <select className={accountInput} required value={form.offerPartner} onChange={(event) => set("offerPartner", event.target.value)}>
+            <option value="">Choose a listing</option>
+            {bundleOptions.map((entry) => <option key={entry.product_id} value={entry.product_id}>{entry.product_name}</option>)}
+          </select>
+        </label>}
+        {form.offerKind && <p className="text-xs text-slate-300 sm:col-span-2">{{
+          percent: "Applies to each copy at checkout.",
+          bogo: "Applies to every second copy in the cart. Enter 100 for a free second copy.",
+          bundle: "Add one of each to the cart to discount the partner item. Partners must share the same DM approval setting."
+        }[form.offerKind]}</p>}
+      </fieldset>
       <label className="grid gap-1">Description
         <textarea className={accountInput} rows={4} maxLength={8000} value={form.description} onChange={(event) => set("description", event.target.value)} />
       </label>
@@ -653,19 +685,20 @@ function FieldAdCards({ ads }) {
   );
 }
 
-function ProductCard({ item, highlight, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, purchasable, approval }) {
+function ProductCard({ item, highlights, offer, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, purchasable, approval }) {
   return (
     <article className="catalog-card">
       <button type="button" className="catalog-image" onClick={onClick} aria-label={`View ${item.name}`}>
         <ListingImage item={item} alt="" loading="lazy" width="288" height="180" />
       </button>
-      <span className="spotlight-badge">{highlight}</span>
+      <div className="spotlight-badges">{highlights.map((label) => <span key={label} className="spotlight-badge">{label}</span>)}</div>
       <button type="button" onClick={() => onToggleFavorite(item.id)} disabled={favoriteDisabled} aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`} className="catalog-heart">
         <Heart size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
       </button>
       <div className="catalog-info">
         <p className="catalog-rarity">{item.rarity}</p>
         <button type="button" className="catalog-title" onClick={onClick}>{item.name}</button>
+        {offer && <p className="catalog-card-offer">{offer}</p>}
         <div className="catalog-footer">
           <PriceLabel item={item} />
           <button type="button" onClick={() => onAddToCart(item)} disabled={!purchasable} className="catalog-cart" aria-label={`Add ${item.name} to cart`} title={approval ? "Requires DM approval" : "Add to cart"}>
@@ -1012,16 +1045,16 @@ export default function LumaPrimeMarketplace() {
     () => new Map(inventory.map((product) => [product.product_id, product])),
     [inventory]
   );
-  const cartLines = cart.map((entry) => {
+  const cartLines = priceCartLines(cart.map((entry) => {
     const product = inventoryById.get(entry.item.id);
     return { ...entry, product, unitPrice: product ? Number(product.price) : getPriceValue(entry.item) };
-  });
+  }));
   const { purchaseTotal, reservationTotal, hasPurchase, hasRequest } = cartLines.reduce((totals, line) => {
     if (line.product?.requires_dm_approval) {
-      totals.reservationTotal += line.unitPrice * line.quantity;
+      totals.reservationTotal += line.lineTotal;
       totals.hasRequest = true;
     } else {
-      totals.purchaseTotal += line.unitPrice * line.quantity;
+      totals.purchaseTotal += line.lineTotal;
       totals.hasPurchase = true;
     }
     return totals;
@@ -1365,10 +1398,11 @@ export default function LumaPrimeMarketplace() {
     setCheckoutMessage(null);
 
     try {
-      const lines = cartLines.map(({ item, quantity, unitPrice, product }) => ({
+      const lines = cartLines.map(({ item, quantity, unitPrice, lineTotal, product }) => ({
         product_id: item.id,
         quantity,
         expected_price: product ? unitPrice : undefined,
+        expected_line_total: product ? lineTotal : undefined,
         expected_approval: product?.requires_dm_approval
       })).sort((a, b) => a.product_id.localeCompare(b.product_id));
 
@@ -1547,8 +1581,15 @@ export default function LumaPrimeMarketplace() {
     setStatus({ message: "Your cart is empty.", tone: "info" });
   };
 
+  function listingOffer(item) {
+    const partner = item.offer?.kind === "bundle" ? inventoryById.get(item.offer.partner_id) : null;
+    if (item.offer?.kind === "bundle" && (!partner?.is_active || partner.stock_quantity === 0 || partner.requires_dm_approval !== inventoryById.get(item.id)?.requires_dm_approval)) return null;
+    return offerLabel(item.offer, partner?.product_name);
+  }
+
   function renderProductDetails(selected, product) {
     const selectedPurchasable = Boolean(product?.is_active && (product.stock_quantity === null || product.stock_quantity > 0));
+    const offer = listingOffer(selected);
     return (
         <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="product-detail">
           <div className="product-detail-grid">
@@ -1574,6 +1615,7 @@ export default function LumaPrimeMarketplace() {
               <div>
                 <p className="text-xs font-semibold text-mint-300 uppercase tracking-widest">{selected.subtitle}</p>
                 <h2 className="detail-title">{selected.name}</h2>
+                {offer && <p className="listing-offer mt-3">{offer}</p>}
                 <p className="mt-2 text-lg italic text-amber-200">{selected.quote}</p>
               </div>
 
@@ -1666,9 +1708,11 @@ export default function LumaPrimeMarketplace() {
     if (!product?.is_active || product.stock_quantity === 0) return [];
     const createdAt = Date.parse(item.createdAt);
     const recent = Number.isFinite(createdAt) && createdAt >= now - newListingWindow && createdAt <= now;
-    const deal = item.regularPrice > getPriceValue(item);
+    const offer = listingOffer(item);
+    const deal = offer || item.regularPrice > getPriceValue(item);
     if (!deal && !recent && !item.buzz) return [];
-    return [{ item, product, highlight: deal ? "Deal" : recent ? "New arrival" : "Talked about", rank: deal ? 0 : recent ? 1 : 2 }];
+    const highlights = [deal && "Deal", recent && "New arrival", item.buzz && "Talked about"].filter(Boolean);
+    return [{ item, product, highlights, offer, rank: deal ? 0 : recent ? 1 : 2 }];
   }).sort((a, b) => a.rank - b.rank || (Date.parse(b.item.createdAt) || 0) - (Date.parse(a.item.createdAt) || 0) || a.item.name.localeCompare(b.item.name));
 
   const catalogPage = (
@@ -1695,12 +1739,13 @@ export default function LumaPrimeMarketplace() {
           const open = expandedId === item.id;
           const detailId = `listing-details-${item.id}`;
           const product = inventoryById.get(item.id);
+          const offer = listingOffer(item);
           return (
             <article key={item.id} className="listing-row" data-product-id={item.id}>
               <h2>
                 <button type="button" className="listing-summary" id={`listing-${item.id}`} aria-expanded={open} aria-controls={open ? detailId : undefined} onClick={() => toggleListing(item.id)}>
                   <span className="listing-summary-art"><ListingImage item={item} alt="" loading="lazy" width="72" height="52" /></span>
-                  <span className="listing-summary-title"><strong>{item.name}</strong><span>{item.rarity} · {item.availability}</span></span>
+                  <span className="listing-summary-title"><strong>{item.name}</strong><span>{item.rarity} · {item.availability}</span>{offer && <span className="listing-summary-offer">{offer}</span>}</span>
                   <PriceLabel item={item} />
                   <ChevronRight size={20} className="listing-chevron" aria-hidden="true" />
                 </button>
@@ -1723,8 +1768,8 @@ export default function LumaPrimeMarketplace() {
           </div>
         </div>
         {spotlightItems.length ? <div className="catalog-grid">
-          {spotlightItems.slice(0, 9).map(({ item, product, highlight }) => (
-            <ProductCard key={item.id} item={item} highlight={highlight}
+          {spotlightItems.slice(0, 9).map(({ item, product, highlights, offer }) => (
+            <ProductCard key={item.id} item={item} highlights={highlights} offer={offer}
               isFavorite={isFavorite(item.id)} onToggleFavorite={handleToggleFavorite}
               favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
               onAddToCart={addToCart} purchasable approval={product.requires_dm_approval}
@@ -1744,7 +1789,7 @@ export default function LumaPrimeMarketplace() {
         <header className="store-header">
           <a className="store-brand" href="/" aria-label="LumaPrime home" onClick={(event) => openCatalogLink(event, () => navigateStore("/"))}>
             <img src={waveLogo} alt="" width="84" height="54" />
-            <span className="store-wordmark">LUMA<em>PRIME</em></span>
+            <span className="store-wordmark">LUMA<em>PRIME</em><img className="wordmark-ribbon" src={waveLogo} alt="" aria-hidden="true" /></span>
           </a>
 
           <div className="store-search">
@@ -1988,6 +2033,7 @@ export default function LumaPrimeMarketplace() {
                 {editingListing && (
                   <ListingEditor key={editingListing.product_id || "new"} product={editingListing.product_id ? editingListing : null}
                     original={originalItems.find((item) => item.id === editingListing.product_id)}
+                    inventory={inventory}
                     onSave={saveListing} onClose={() => setEditingListing(null)} />
                 )}
                 <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -2183,6 +2229,7 @@ export default function LumaPrimeMarketplace() {
                           <div>
                             <p className="text-sm font-semibold text-white">{entry.item.name}</p>
                             <p className="text-xs text-slate-300">{formatCurrency(entry.unitPrice)} each</p>
+                            {entry.discount && <p className="text-xs text-amber-200">{entry.discount.label} · Save {formatCurrency(entry.discount.savings)}</p>}
                             {entry.product?.requires_dm_approval && <p className="text-xs text-amber-200">Requires DM approval</p>}
                             {entry.product && (
                               <p className="text-xs text-slate-300">
@@ -2204,7 +2251,7 @@ export default function LumaPrimeMarketplace() {
                               <Plus className="h-4 w-4" />
                             </button>
                           </div>
-                          <p className="text-sm font-semibold text-mint-100">{formatCurrency(entry.unitPrice * entry.quantity)}</p>
+                          <p className="text-sm font-semibold text-mint-100">{formatCurrency(entry.lineTotal)}</p>
                         </div>
                       </div>
                     ))}
