@@ -3,6 +3,7 @@ import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, He
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
+import { fieldAdInterval, getFieldAds } from "./fieldAds";
 import waveLogo from "./liquid-light-logo.webp";
 import coinArtwork from "./coin.webp";
 import braceletArtwork from "./bracelets.webp";
@@ -141,6 +142,9 @@ function catalogItem(product, original = {}) {
     id: product.product_id,
     name: product.product_name,
     price: Number(product.price),
+    createdAt: product.created_at || null,
+    regularPrice: details.regular_price == null ? null : Number(details.regular_price),
+    buzz: details.buzz === true,
     rarity: original.rarity === "Platinum Curated Artifact Package" && product.rarity === "Artifact" ? original.rarity : product.rarity,
     availability: product.stock_quantity === null ? "Unlimited stock" : product.stock_quantity > 0 ? `${product.stock_quantity} available` : "Sold out"
   };
@@ -155,6 +159,7 @@ function ListingEditor({ product, original, onSave, onClose }) {
       vendor: item.vendor || "", description: item.description || "",
       image: item.image?.startsWith("https://") ? item.image : "",
       rarity: product?.rarity || "Common", price: product ? String(product.price) : "",
+      regularPrice: item.regularPrice == null ? "" : String(item.regularPrice), buzz: Boolean(item.buzz),
       stock: product?.stock_quantity == null ? "" : String(product.stock_quantity),
       approval: product?.requires_dm_approval ?? false, active: product?.is_active ?? true
     };
@@ -172,6 +177,9 @@ function ListingEditor({ product, original, onSave, onClose }) {
     setBusy(true);
     setError("");
     try {
+      if (form.regularPrice !== "" && Number(form.regularPrice) <= Number(form.price)) {
+        throw new Error("The regular price must be higher than the current price.");
+      }
       await onSave({
         listing_id: listingId, expected_updated_at: product?.updated_at || null,
         listing: { ...form, price: Number(form.price), stock: form.stock === "" ? null : Number(form.stock), approval: rare || form.approval }
@@ -207,6 +215,10 @@ function ListingEditor({ product, original, onSave, onClose }) {
         <label className="grid gap-1">Price in Lumina
           <input className={accountInput} type="number" min="0" max="1000000000" step="1" value={form.price} onChange={(event) => set("price", event.target.value)} required />
         </label>
+        <label className="grid gap-1">Regular price before deal
+          <input className={accountInput} type="number" min="1" max="1000000000" step="1" value={form.regularPrice} onChange={(event) => set("regularPrice", event.target.value)} />
+          <span className="text-xs text-slate-300">Optional. The current price is what players pay.</span>
+        </label>
         <label className="grid gap-1">Available stock
           <input className={accountInput} type="number" min="0" max="1000000" step="1" value={form.stock} onChange={(event) => set("stock", event.target.value)} required={rare} placeholder={rare ? "Enter quantity" : "Blank means unlimited"} />
         </label>
@@ -220,6 +232,7 @@ function ListingEditor({ product, original, onSave, onClose }) {
       <div className="flex flex-wrap gap-4">
         <label className="flex gap-2"><input type="checkbox" checked={rare || form.approval} disabled={rare} onChange={(event) => set("approval", event.target.checked)} /> Require DM approval</label>
         <label className="flex gap-2"><input type="checkbox" checked={form.active} onChange={(event) => set("active", event.target.checked)} /> Visible in storefront</label>
+        <label className="flex gap-2"><input type="checkbox" checked={form.buzz} onChange={(event) => set("buzz", event.target.checked)} /> Mark as talked about</label>
       </div>
       {error && <p role="alert" className="text-rose-200">{error}</p>}
       <div className="flex flex-wrap gap-2">
@@ -572,34 +585,37 @@ function StatRow({ label, value }) {
   );
 }
 
-const fieldAds = [
-  {
-    id: "obsidian", name: "Obsidian Silent Delivery", icon: Truck,
-    headline: "Your parcel was never here.",
-    copy: "Discreet delivery for cargo that prefers a quiet entrance.",
-    action: "View service",
-    details: "Ask your DM whether Obsidian Silent Delivery serves your current port. Deliveries can be arranged with the courier in-game."
-  },
-  {
-    id: "spiral", name: "Spiral Gate Transit", icon: Orbit,
-    headline: "One jump. Nine realms.",
-    copy: "Need a gate route? Try the departure board.",
-    action: "Check departures",
-    details: "Departure times vary by realm, gate conditions, and how long customs spends inspecting your luggage. Ask at the next Spiral Gate terminal for current routes."
-  },
-  {
-    id: "scrap", name: "Scrap Exchange Network", icon: Recycle,
-    headline: "Turn your junk into Lumina.",
-    copy: "That questionable crate might be worth something.",
-    action: "Get a quote",
-    details: "Bring salvage to a Scrap Exchange broker in-game. Appraisals depend on condition, origin, and whether the crate is making that noise on purpose."
-  }
-];
+const fieldAdIcons = {
+  courier: Truck,
+  transit: Orbit,
+  salvage: Recycle,
+  leisure: Leaf,
+  paperwork: ShieldCheck,
+  arcana: Star
+};
 
 function FieldReports() {
-  const [dismissed, setDismissed] = useState([]);
-  const [expanded, setExpanded] = useState(null);
-  const visible = fieldAds.filter((ad) => !dismissed.includes(ad.id));
+  const [slot, setSlot] = useState(() => Math.floor(Date.now() / fieldAdInterval));
+
+  useEffect(() => {
+    let timer;
+
+    function updateSlot() {
+      window.clearTimeout(timer);
+      const now = Date.now();
+      setSlot(Math.floor(now / fieldAdInterval));
+      timer = window.setTimeout(updateSlot, fieldAdInterval - now % fieldAdInterval);
+    }
+
+    updateSlot();
+    document.addEventListener("visibilitychange", updateSlot);
+    window.addEventListener("focus", updateSlot);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", updateSlot);
+      window.removeEventListener("focus", updateSlot);
+    };
+  }, []);
 
   return (
     <aside className="field-reports" aria-labelledby="field-reports-title">
@@ -607,8 +623,21 @@ function FieldReports() {
         <h2 id="field-reports-title">Field Reports</h2>
         <span>Sponsored</span>
       </div>
-      {visible.map(({ id, name, icon: Icon, headline, copy, action, details }) => (
-        <article key={id} className={`field-ad field-ad-${id}`}>
+      <FieldAdCards key={slot} ads={getFieldAds(slot)} />
+    </aside>
+  );
+}
+
+function FieldAdCards({ ads }) {
+  const [dismissed, setDismissed] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const visible = ads.filter((ad) => !dismissed.includes(ad.id));
+
+  return (
+    <>
+      {visible.map(({ id, name, type, headline, copy, action, details }) => {
+        const Icon = fieldAdIcons[type];
+        return <article key={id} className={`field-ad field-ad-${type}`}>
           <button type="button" className="field-ad-close" aria-label={`Dismiss ${name} ad`} onClick={() => setDismissed((ads) => [...ads, id])}><X size={14} /></button>
           <div className="field-ad-name"><Icon size={14} aria-hidden="true" />{name}</div>
           <h3>{headline}</h3>
@@ -617,19 +646,20 @@ function FieldReports() {
             {expanded === id ? "Close" : action} <ChevronRight size={14} aria-hidden="true" />
           </button>
           {expanded === id && <p className="field-ad-details">{details}</p>}
-        </article>
-      ))}
+        </article>;
+      })}
       {!visible.length && <button type="button" className="field-ad-action" onClick={() => setDismissed([])}>Show sponsored ads</button>}
-    </aside>
+    </>
   );
 }
 
-function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, purchasable, approval }) {
+function ProductCard({ item, highlight, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, purchasable, approval }) {
   return (
-    <article className={`catalog-card ${selected ? "catalog-card-selected" : ""}`}>
-      <button type="button" className="catalog-image" onClick={onClick} aria-label={`View ${item.name}`} aria-pressed={selected}>
+    <article className="catalog-card">
+      <button type="button" className="catalog-image" onClick={onClick} aria-label={`View ${item.name}`}>
         <ListingImage item={item} alt="" loading="lazy" width="288" height="180" />
       </button>
+      <span className="spotlight-badge">{highlight}</span>
       <button type="button" onClick={() => onToggleFavorite(item.id)} disabled={favoriteDisabled} aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`} className="catalog-heart">
         <Heart size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
       </button>
@@ -637,7 +667,7 @@ function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, fa
         <p className="catalog-rarity">{item.rarity}</p>
         <button type="button" className="catalog-title" onClick={onClick}>{item.name}</button>
         <div className="catalog-footer">
-          <span>{formatCurrency(getPriceValue(item))}</span>
+          <PriceLabel item={item} />
           <button type="button" onClick={() => onAddToCart(item)} disabled={!purchasable} className="catalog-cart" aria-label={`Add ${item.name} to cart`} title={approval ? "Requires DM approval" : "Add to cart"}>
             <ShoppingCart size={16} aria-hidden="true" />
           </button>
@@ -647,6 +677,26 @@ function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, fa
       </div>
     </article>
   );
+}
+
+const catalogSorts = [
+  ["alphabetical", "Alphabetical (A–Z)"], ["price-low", "Price: Low to High"],
+  ["price-high", "Price: High to Low"], ["newest", "Newest"], ["oldest", "Oldest"]
+];
+
+const newListingWindow = 30 * 24 * 60 * 60 * 1000;
+
+function PriceLabel({ item }) {
+  return <span className="listing-price">
+    {item.regularPrice > getPriceValue(item) && <del aria-label={`Regular price ${formatCurrency(item.regularPrice)}`}>{formatCurrency(item.regularPrice)}</del>}
+    <span>{formatCurrency(getPriceValue(item))}</span>
+  </span>;
+}
+
+function openCatalogLink(event, onNavigate) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  onNavigate();
 }
 
 function formatLoginDate(value) {
@@ -765,10 +815,10 @@ function getAllTags(items) {
 }
 
 export default function LumaPrimeMarketplace() {
-  const [selectedId, setSelectedId] = useState(originalItems[0].id);
-  const [query, setQuery] = useState("");
-  const [searchSelectionId, setSearchSelectionId] = useState(null);
-  const listingPanel = useRef(null);
+  const [isCatalog, setIsCatalog] = useState(() => window.location.pathname.replace(/\/$/, "") === "/catalog");
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
+  const [openItemId, setOpenItemId] = useState(() => new URLSearchParams(window.location.search).get("item"));
+  const [searchItemClosed, setSearchItemClosed] = useState(false);
   const [authMode, setAuthMode] = useState(isRecoveryCallback ? "reset" : "login");
   const [authForm, setAuthForm] = useState(emptyAuthForm);
   const [session, setSession] = useState(null);
@@ -782,7 +832,6 @@ export default function LumaPrimeMarketplace() {
   const [isDmAdmin, setIsDmAdmin] = useState(false);
   const [showDmDashboard, setShowDmDashboard] = useState(false);
   const [showAccount, setShowAccount] = useState(isRecoveryCallback || callbackFailed || recoveryRequested);
-  const [visibleListings, setVisibleListings] = useState(8);
   const [dmDepositAmount, setDmDepositAmount] = useState("100");
   const [generatedDmCode, setGeneratedDmCode] = useState("");
   const [generatingDmCode, setGeneratingDmCode] = useState(false);
@@ -817,9 +866,29 @@ export default function LumaPrimeMarketplace() {
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [sortMode, setSortMode] = useState("featured");
+  const [sortMode, setSortMode] = useState(() => query.trim() ? "relevance" : "alphabetical");
   const [selectedTag, setSelectedTag] = useState("All");
   const [selectedRarity, setSelectedRarity] = useState("All");
+
+  useEffect(() => {
+    function restorePage() {
+      const params = new URLSearchParams(window.location.search);
+      setIsCatalog(window.location.pathname.replace(/\/$/, "") === "/catalog");
+      setQuery(params.get("q") || "");
+      setSortMode(params.get("q")?.trim() ? "relevance" : "alphabetical");
+      setOpenItemId(params.get("item"));
+      setSearchItemClosed(false);
+      setShowFilters(false);
+      setSelectedTag("All");
+      setSelectedRarity("All");
+    }
+    window.addEventListener("popstate", restorePage);
+    return () => window.removeEventListener("popstate", restorePage);
+  }, []);
+
+  useEffect(() => {
+    document.title = isCatalog ? "All Listings | LumaPrime Marketplace" : "LumaPrime Marketplace";
+  }, [isCatalog]);
   const [carts, setCarts] = useState({});
   const cartKey = profile ? `luma-prime-cart-${profile.id}` : "luma-prime-cart";
   const cart = carts[cartKey] ?? readCart(cartKey);
@@ -873,29 +942,67 @@ export default function LumaPrimeMarketplace() {
   }, [items, searchQuery, selectedTag, selectedRarity]);
 
   const filtered = useMemo(() => {
-    if (sortMode === "price-low") return [...matches].sort((a, b) => getPriceValue(a) - getPriceValue(b));
-    if (sortMode === "price-high") return [...matches].sort((a, b) => getPriceValue(b) - getPriceValue(a));
-    return matches;
+    if (sortMode === "relevance") return matches;
+    return [...matches].sort((a, b) => {
+      const nameOrder = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      if (sortMode === "price-low") return getPriceValue(a) - getPriceValue(b) || nameOrder;
+      if (sortMode === "price-high") return getPriceValue(b) - getPriceValue(a) || nameOrder;
+      if (sortMode === "newest" || sortMode === "oldest") {
+        const first = Date.parse(a.createdAt);
+        const second = Date.parse(b.createdAt);
+        if (!Number.isFinite(first) && !Number.isFinite(second)) return nameOrder;
+        if (!Number.isFinite(first)) return sortMode === "oldest" ? -1 : 1;
+        if (!Number.isFinite(second)) return sortMode === "oldest" ? 1 : -1;
+        return (sortMode === "oldest" ? first - second : second - first) || nameOrder;
+      }
+      return nameOrder;
+    });
   }, [matches, sortMode]);
 
-  const selected = searchQuery
-    ? matches.find((item) => item.id === searchSelectionId) || matches[0]
-    : items.find((item) => item.id === selectedId) || items[0];
+  const expandedId = openItemId || (searchQuery && !searchItemClosed ? matches[0]?.id : null);
 
-  function updateSearch(value) {
-    setQuery(value);
-    setSearchSelectionId(null);
-    setVisibleListings(8);
+  function navigateStore(path, itemId = null) {
+    const url = itemId ? `${path}?item=${encodeURIComponent(itemId)}` : path;
+    if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+      window.history.pushState(null, "", url);
+    }
+    setIsCatalog(path === "/catalog");
+    setQuery("");
+    setSortMode("alphabetical");
+    setOpenItemId(itemId);
+    setSearchItemClosed(false);
+    setShowFilters(false);
+    setSelectedTag("All");
+    setSelectedRarity("All");
+    window.scrollTo(0, 0);
+    if (itemId) {
+      requestAnimationFrame(() => document.getElementById(`listing-${itemId}`)?.scrollIntoView?.({ block: "start" }));
+    }
   }
 
-  function openListing(itemId, scrollToListing = false) {
-    if (scrollToListing) requestAnimationFrame(() => listingPanel.current?.scrollIntoView?.({ block: "start", behavior: "instant" }));
-    if (searchQuery && matches.some((item) => item.id === itemId)) {
-      setSearchSelectionId(itemId);
-    } else {
-      updateSearch("");
-      setSelectedId(itemId);
+  function updateSearch(value) {
+    if (!isCatalog && !value.trim()) return;
+    const url = value.trim() ? `/catalog?q=${encodeURIComponent(value)}` : "/catalog";
+    if (isCatalog) window.history.replaceState(null, "", url);
+    else {
+      window.history.pushState(null, "", url);
+      setIsCatalog(true);
     }
+    setQuery(value);
+    if (!value.trim()) setSortMode((current) => current === "relevance" ? "alphabetical" : current);
+    else if (!searchQuery) setSortMode("relevance");
+    setOpenItemId(null);
+    setSearchItemClosed(false);
+  }
+
+  function toggleListing(itemId) {
+    const closing = expandedId === itemId;
+    setOpenItemId(closing ? null : itemId);
+    setSearchItemClosed(closing);
+    const params = new URLSearchParams(window.location.search);
+    if (closing) params.delete("item");
+    else params.set("item", itemId);
+    window.history.replaceState(null, "", params.size ? `/catalog?${params}` : "/catalog");
   }
 
   const isFavorite = (itemId) => favorites.includes(itemId);
@@ -1142,7 +1249,12 @@ export default function LumaPrimeMarketplace() {
 
   const loadInventory = async () => {
     try {
-      const rows = await supabaseRequest("/rest/v1/marketplace_inventory?select=product_id,product_name,rarity,price,stock_quantity,requires_dm_approval,is_active,listing_details,updated_at&order=product_name.asc");
+      const columns = "product_id,product_name,rarity,price,stock_quantity,requires_dm_approval,is_active,listing_details,updated_at";
+      const rows = await supabaseRequest(`/rest/v1/marketplace_inventory?select=${columns},created_at&order=product_name.asc`)
+        .catch((error) => {
+          if (error.databaseCode !== "42703" || !error.message.includes("created_at")) throw error;
+          return supabaseRequest(`/rest/v1/marketplace_inventory?select=${columns}&order=product_name.asc`);
+        });
       if (Array.isArray(rows)) {
         setInventory(rows);
         setInventoryLoaded(true);
@@ -1435,27 +1547,9 @@ export default function LumaPrimeMarketplace() {
     setStatus({ message: "Your cart is empty.", tone: "info" });
   };
 
-  const selectedProduct = inventoryById.get(selected?.id);
-  const selectedPurchasable = Boolean(selectedProduct?.is_active && (selectedProduct.stock_quantity === null || selectedProduct.stock_quantity > 0));
-  const productDetails = (
-    <div ref={listingPanel} className="product-details-wrap">
-      {!selected ? (
-        <section className="self-start rounded-[2rem] border border-mint-300/15 bg-black/35 p-6" role="status">
-          <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
-          {searchQuery && <>
-            <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>
-              {(selectedTag !== "All" || selectedRarity !== "All") && (
-                <button type="button" className={accountButton} onClick={() => {
-                  setSelectedTag("All");
-                  setSelectedRarity("All");
-                }}>Clear filters</button>
-              )}
-            </div>
-          </>}
-        </section>
-      ) : (
+  function renderProductDetails(selected, product) {
+    const selectedPurchasable = Boolean(product?.is_active && (product.stock_quantity === null || product.stock_quantity > 0));
+    return (
         <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="product-detail">
           <div className="product-detail-grid">
             {/* Left: Large Product Image */}
@@ -1469,7 +1563,7 @@ export default function LumaPrimeMarketplace() {
               </div>
               <div className="mt-6 flex flex-col items-center gap-2">
                 <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-1 text-lg font-bold text-amber-100 flex items-center gap-2">
-                  {formatCurrency(getPriceValue(selected))}
+                  <PriceLabel item={selected} />
                 </span>
                 <span className="rounded-full border border-emerald-300/40 bg-emerald-500/10 px-4 py-1 text-sm font-semibold text-emerald-200">{selected.rarity}</span>
               </div>
@@ -1502,7 +1596,7 @@ export default function LumaPrimeMarketplace() {
                 </div>
                 <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4 col-span-2">
                   <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Availability</div>
-                  <div className="text-sm text-white">{selected.availability}</div>
+                  <div className="text-sm text-white">{selected.availability}{product?.requires_dm_approval && " · DM approval required"}</div>
                 </div>
               </div>
 
@@ -1563,45 +1657,84 @@ export default function LumaPrimeMarketplace() {
             </div>
           </div>
         </motion.section>
-      )}
-    </div>
+    );
+  }
+
+  const now = Date.now();
+  const spotlightItems = items.flatMap((item) => {
+    const product = inventoryById.get(item.id);
+    if (!product?.is_active || product.stock_quantity === 0) return [];
+    const createdAt = Date.parse(item.createdAt);
+    const recent = Number.isFinite(createdAt) && createdAt >= now - newListingWindow && createdAt <= now;
+    const deal = item.regularPrice > getPriceValue(item);
+    if (!deal && !recent && !item.buzz) return [];
+    return [{ item, product, highlight: deal ? "Deal" : recent ? "New arrival" : "Talked about", rank: deal ? 0 : recent ? 1 : 2 }];
+  }).sort((a, b) => a.rank - b.rank || (Date.parse(b.item.createdAt) || 0) - (Date.parse(a.item.createdAt) || 0) || a.item.name.localeCompare(b.item.name));
+
+  const catalogPage = (
+    <section className="market-grid catalog-page" aria-labelledby="catalog-title">
+      <div className="catalog-page-heading">
+        <div>
+          <a className="catalog-back" href="/" onClick={(event) => openCatalogLink(event, () => navigateStore("/"))}>← Marketplace</a>
+          <h1 id="catalog-title">All Listings</h1>
+          <p role="status">{inventoryLoaded ? `${filtered.length} ${filtered.length === 1 ? "listing" : "listings"}${searchQuery ? ` for “${query.trim()}”` : ""}` : "Loading inventory…"}</p>
+        </div>
+        <div className="catalog-toolbar">
+          {searchQuery && <button type="button" className="catalog-control" onClick={() => updateSearch("")}>Clear search</button>}
+          <label>Sort by
+            <select className="catalog-control" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+              {searchQuery && <option value="relevance">Best match</option>}
+              {catalogSorts.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+        </div>
+      </div>
+      {inventoryLoaded && filtered.length === 0 && <p className="spotlight-empty">No listings match. Try a different search or clear the filters.</p>}
+      <div className="listing-list">
+        {inventoryLoaded && filtered.map((item) => {
+          const open = expandedId === item.id;
+          const detailId = `listing-details-${item.id}`;
+          const product = inventoryById.get(item.id);
+          return (
+            <article key={item.id} className="listing-row" data-product-id={item.id}>
+              <h2>
+                <button type="button" className="listing-summary" id={`listing-${item.id}`} aria-expanded={open} aria-controls={open ? detailId : undefined} onClick={() => toggleListing(item.id)}>
+                  <span className="listing-summary-art"><ListingImage item={item} alt="" loading="lazy" width="72" height="52" /></span>
+                  <span className="listing-summary-title"><strong>{item.name}</strong><span>{item.rarity} · {item.availability}</span></span>
+                  <PriceLabel item={item} />
+                  <ChevronRight size={20} className="listing-chevron" aria-hidden="true" />
+                </button>
+              </h2>
+              {open && <div id={detailId} className="listing-expanded">{renderProductDetails(item, product)}</div>}
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 
   const storefrontListings = (
-    <section className="market-grid" aria-label="Marketplace" id="marketplace">
+    <section className="market-grid market-home" aria-label="Marketplace">
       <div className="market-catalog">
         <div className="market-heading">
           <div>
-            <h2>{searchQuery ? "Search results" : "Active Listings"}</h2>
-            <p aria-live="polite">{filtered.length} {filtered.length === 1 ? "listing" : "listings"}{searchQuery ? ` for “${query.trim()}”` : ""}</p>
+            <h2>Market Spotlight</h2>
+            <p>Deals, new arrivals, and listings getting people talking.</p>
           </div>
-          {searchQuery && <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>}
-          {!searchQuery && <button type="button" className={accountButton} onClick={() => setShowFilters((open) => !open)} aria-expanded={showFilters}><Filter size={14} /> Filters</button>}
         </div>
-        {searchQuery && productDetails}
-        {filtered.length > 0 && (
-          <div className="catalog-grid">
-            {filtered.slice(0, visibleListings).map((item) => {
-              const product = inventoryById.get(item.id);
-              return (
-                <ProductCard key={item.id} item={item} selected={item.id === selected?.id}
-                  isFavorite={isFavorite(item.id)} onToggleFavorite={handleToggleFavorite}
-                  favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
-                  onAddToCart={addToCart}
-                  purchasable={Boolean(product?.is_active && (product.stock_quantity === null || product.stock_quantity > 0))}
-                  approval={product?.requires_dm_approval}
-                  onClick={() => openListing(item.id, true)}
-                />
-              );
-            })}
-          </div>
-        )}
-        {filtered.length > visibleListings && (
-          <button type="button" className={`mt-3 ${accountButton}`} onClick={() => setVisibleListings((count) => count + 8)}>Show more listings</button>
-        )}
+        {spotlightItems.length ? <div className="catalog-grid">
+          {spotlightItems.slice(0, 9).map(({ item, product, highlight }) => (
+            <ProductCard key={item.id} item={item} highlight={highlight}
+              isFavorite={isFavorite(item.id)} onToggleFavorite={handleToggleFavorite}
+              favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
+              onAddToCart={addToCart} purchasable approval={product.requires_dm_approval}
+              onClick={() => navigateStore("/catalog", item.id)} />
+          ))}
+        </div> : <div className="spotlight-empty">
+          <p>{inventoryLoaded ? "No deals, new arrivals, or talked-about items are featured right now." : "Loading the spotlight…"}</p>
+          <a className="catalog-back" href="/catalog" onClick={(event) => openCatalogLink(event, () => navigateStore("/catalog"))}>View all listings <ChevronRight size={15} aria-hidden="true" /></a>
+        </div>}
       </div>
-      <FieldReports />
-      {!searchQuery && productDetails}
     </section>
   );
 
@@ -1609,7 +1742,7 @@ export default function LumaPrimeMarketplace() {
     <div className="store-shell">
       <main className="store-main">
         <header className="store-header">
-          <a className="store-brand" href="#" aria-label="LumaPrime home" onClick={() => updateSearch("")}>
+          <a className="store-brand" href="/" aria-label="LumaPrime home" onClick={(event) => openCatalogLink(event, () => navigateStore("/"))}>
             <img src={waveLogo} alt="" width="84" height="54" />
             <span className="store-wordmark">LUMA<em>PRIME</em></span>
           </a>
@@ -1623,13 +1756,16 @@ export default function LumaPrimeMarketplace() {
                 value={query}
                 onChange={(event) => updateSearch(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && searchQuery) listingPanel.current?.scrollIntoView?.({ block: "start" });
+                  if (event.key === "Enter" && expandedId) document.getElementById(`listing-${expandedId}`)?.scrollIntoView?.({ block: "start" });
                 }}
                 placeholder="Search the marketplace" className="store-search-input" />
             </div>
             <button
               type="button"
-              onClick={() => setShowFilters((current) => !current)}
+              onClick={() => {
+                if (!isCatalog) navigateStore("/catalog");
+                setShowFilters(!showFilters || !isCatalog);
+              }}
               aria-label="Marketplace filters" aria-expanded={showFilters}
               className="store-icon-button"
             >
@@ -1738,13 +1874,13 @@ export default function LumaPrimeMarketplace() {
           </div>
         </header>
 
-        {!searchQuery && (
+        {!isCatalog && (
           <section className="store-hero" aria-labelledby="store-hero-title">
             <div className="store-hero-content">
               <p className="hero-kicker">LUMAPRIME MARKETPLACE</p>
               <h1 id="store-hero-title">Trade beyond<br /><em>worlds.</em></h1>
               <p>Browse enchanted gear and everyday goods from across the Nine Realms.</p>
-              <a className="hero-button" href="#marketplace">Browse listings <ChevronRight size={17} aria-hidden="true" /></a>
+              <a className="hero-button" href="/catalog" onClick={(event) => openCatalogLink(event, () => navigateStore("/catalog"))}>Browse listings <ChevronRight size={17} aria-hidden="true" /></a>
             </div>
           </section>
         )}
@@ -1755,29 +1891,9 @@ export default function LumaPrimeMarketplace() {
         </aside>
 
 
-        {showFilters ? (
+        {isCatalog && showFilters ? (
           <div className="mb-6 rounded-[2rem] border border-mint-300/15 bg-black/35 p-5 backdrop-blur">
-            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Sort</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {[
-                    { id: "featured", label: "Featured" },
-                    { id: "price-low", label: "Price: Low to High" },
-                    { id: "price-high", label: "Price: High to Low" }
-                  ].map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => setSortMode(option.id)}
-                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${sortMode === option.id ? "border-mint-300/50 bg-mint-400/15 text-mint-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-amber-300/50"}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
+            <div className="space-y-4">
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Tag filter</p>
@@ -1815,7 +1931,10 @@ export default function LumaPrimeMarketplace() {
           </div>
         ) : null}
 
-        {storefrontListings}
+        <div className={isCatalog ? undefined : "home-columns"}>
+          {isCatalog ? catalogPage : storefrontListings}
+          {!isCatalog && <div className="market-ad-rail"><FieldReports /></div>}
+          <div className="store-dashboards">
 
         {isDmAdmin && showDmDashboard && profile ? (
           <section id="dm-dashboard" className="mb-6 scroll-mt-4 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
@@ -2022,7 +2141,7 @@ export default function LumaPrimeMarketplace() {
                         <p className="text-sm font-semibold text-white">{item.name}</p>
                         <p className="text-xs text-slate-300">{formatCurrency(getPriceValue(item))}</p>
                       </div>
-                      <button onClick={() => openListing(item.id, true)} className="rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-1 text-xs font-semibold text-mint-100">View</button>
+                      <button onClick={() => navigateStore("/catalog", item.id)} className="rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-1 text-xs font-semibold text-mint-100">View</button>
                     </div>
                   ) : null;
                 })
@@ -2033,6 +2152,9 @@ export default function LumaPrimeMarketplace() {
           </div>
 
         </section>
+
+          </div>
+        </div>
 
         {showCart ? (
           <div className="fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm" onClick={() => setShowCart(false)}>
