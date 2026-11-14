@@ -41,8 +41,8 @@ function localFavorites(userId) {
 
 
 const deliveryLabels = {
-  awaiting_delivery: "Awaiting delivery",
-  dispatched: "Dispatched",
+  awaiting_delivery: "Awaiting dispatch",
+  dispatched: "In transit",
   delivered: "Delivered"
 };
 const fundingLabels = {
@@ -75,19 +75,19 @@ function useMarketplaceList(load, initialPage = 0) {
 }
 
 function MyOrders({ token }) {
-  const load = useCallback((page) => marketplaceRpc(token, "marketplace_my_orders", { page_offset: page * 20 }), [token]);
+  const load = useCallback((page) => marketplaceRpc(token, "marketplace_my_orders_with_tracking", { page_offset: page * 20 }), [token]);
   const { rows, busy, error, page, setPage, refresh } = useMarketplaceList(load);
 
   return (
-    <section id="my-orders" className="mb-6 rounded-[2rem] border border-cyan-300/15 bg-black/30 p-5" aria-labelledby="my-orders-title">
+    <section id="my-orders" className="rounded-2xl border border-cyan-300/15 bg-black/30 p-4" aria-labelledby="my-orders-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="my-orders-title" className="text-xl font-bold">My Orders</h2>
+        <h3 id="my-orders-title" className="text-lg font-bold">My Orders &amp; Deliveries</h3>
         <button type="button" className={accountButton} disabled={busy} onClick={refresh}>Refresh orders</button>
       </div>
       {busy && <p role="status" className="mt-3 text-sm text-slate-300">Loading orders…</p>}
       {error && <p role="alert" className="mt-3 text-sm text-rose-200">{error}</p>}
       {!busy && !error && !rows.length && <p className="mt-3 text-sm text-slate-300">{page ? "No more orders." : "Your purchases and requests will appear here."}</p>}
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <div className="mt-3 space-y-2">
         {rows.map((order) => {
           const status = {
             pending_approval: "Pending DM approval",
@@ -112,7 +112,27 @@ function MyOrders({ token }) {
               <p className="text-cyan-100">
                 {formatCurrency(order.order_total)} {order.order_status === "rejected" ? "returned to wallet" : order.order_status === "pending_approval" ? "reserved" : "order total"}
               </p>
-              {order.delivery_status && <p className="mt-1 text-amber-100">{deliveryLabels[order.delivery_status]}</p>}
+              {order.delivery_status && (
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <p className="font-semibold text-amber-100">Delivery · {deliveryLabels[order.delivery_status]}</p>
+                  {order.delivery_status !== "delivered" && (
+                    <p className="mt-1 text-slate-300">{order.delivery_estimate ? `Estimated arrival: ${order.delivery_estimate}` : "Arrival estimate pending"}</p>
+                  )}
+                  {order.delivery_events?.length > 0 && (
+                    <details className="mt-2 text-slate-200">
+                      <summary className="cursor-pointer text-cyan-100">Tracking history</summary>
+                      <ol className="mt-2 space-y-2 border-l border-cyan-300/25 pl-3">
+                        {order.delivery_events.map((event, index) => (
+                          <li key={index} className="flex flex-wrap justify-between gap-x-3">
+                            <span>{deliveryLabels[event.status]}</span>
+                            <time className="text-slate-300" dateTime={event.recorded_at}>{new Date(event.recorded_at).toLocaleString()}</time>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+                </div>
+              )}
             </article>
           );
         })}
@@ -124,6 +144,30 @@ function MyOrders({ token }) {
         </div>
       )}
     </section>
+  );
+}
+
+function DeliveryEditor({ order, busy, onSave }) {
+  const [status, setStatus] = useState(order.delivery_status || "awaiting_delivery");
+  const [estimate, setEstimate] = useState(order.delivery_estimate || "");
+
+  return (
+    <form className="mt-3 grid gap-2 sm:grid-cols-[1fr_2fr_auto] sm:items-end" onSubmit={(event) => {
+      event.preventDefault();
+      onSave(order.order_id, status, estimate);
+    }}>
+      <label className="grid gap-1">
+        Delivery status
+        <select className={accountInput} value={status} onChange={(event) => setStatus(event.target.value)} disabled={busy}>
+          {Object.entries(deliveryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <label className="grid gap-1">
+        Estimated arrival
+        <input className={accountInput} value={estimate} onChange={(event) => setEstimate(event.target.value)} maxLength={120} placeholder="e.g. Next session or Lumiphase 24" disabled={busy} />
+      </label>
+      <button type="submit" className={accountButton} disabled={busy || (status === order.delivery_status && estimate.trim() === (order.delivery_estimate || ""))}>Save tracking</button>
+    </form>
   );
 }
 
@@ -1059,7 +1103,7 @@ export default function LumaPrimeMarketplace() {
     try {
       const [transactions, orders] = await Promise.all([
         supabaseRequest("/rest/v1/rpc/dm_list_transactions", { method: "POST", token: sessionToken, body: {} }),
-        marketplaceRpc(sessionToken, "dm_marketplace_orders_with_delivery")
+        marketplaceRpc(sessionToken, "dm_marketplace_orders_with_tracking")
       ]);
       if (accountToken.current !== sessionToken) return;
       setDmTransactions(transactions);
@@ -1101,17 +1145,17 @@ export default function LumaPrimeMarketplace() {
     finally { setDmBusy(false); }
   };
 
-  const updateDelivery = async (orderId, deliveryStatus) => {
+  const updateDelivery = async (orderId, deliveryStatus, estimate) => {
     if (dmBusy || !isDmAdmin || !sessionToken) return;
     setDmBusy(true);
     setDmOrderError("");
     try {
-      await marketplaceRpc(sessionToken, "dm_marketplace_set_delivery", {
-        target_order: orderId, new_status: deliveryStatus
+      await marketplaceRpc(sessionToken, "dm_marketplace_update_tracking", {
+        target_order: orderId, new_status: deliveryStatus, arrival_estimate: estimate
       });
       if (accountToken.current !== sessionToken) return;
       setDmOrders((orders) => orders.map((order) =>
-        order.order_id === orderId ? { ...order, delivery_status: deliveryStatus } : order
+        order.order_id === orderId ? { ...order, delivery_status: deliveryStatus, delivery_estimate: estimate.trim() || null } : order
       ));
       setOrdersRevision((revision) => revision + 1);
     } catch (error) {
@@ -1374,9 +1418,6 @@ export default function LumaPrimeMarketplace() {
                     {showDmDashboard ? "Hide DM Dashboard" : "DM Dashboard"}
                   </button>
                 ) : null}
-                <button type="button" className={`w-full ${accountButton}`} aria-expanded={showOrders} aria-controls={showOrders ? "my-orders" : undefined} onClick={() => setShowOrders((visible) => !visible)}>
-                  {showOrders ? "Hide My Orders" : "My Orders"}
-                </button>
                 <button onClick={handleLogout} disabled={checkoutBusy} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
                   Log out
                 </button>
@@ -1503,8 +1544,6 @@ export default function LumaPrimeMarketplace() {
           </div>
         ) : null}
 
-        {profile && showOrders && <MyOrders key={`${profile.id}-${ordersRevision}`} token={sessionToken} />}
-
         {isDmAdmin && showDmDashboard && profile ? (
           <section className="mb-6 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">DM Only</p>
@@ -1537,16 +1576,7 @@ export default function LumaPrimeMarketplace() {
                 <div className="flex flex-wrap justify-between gap-2"><span>{o.player_name} — {formatCurrency(o.order_total)}</span><span>{o.order_status}</span></div>
                 <p className="text-xs text-slate-300">{o.order_items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
                 {o.order_status === "completed" && (
-                  <label className="mt-2 flex flex-wrap items-center gap-2">
-                    Delivery status
-                    <select
-                      className="rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-white"
-                      value={o.delivery_status || "awaiting_delivery"} disabled={dmBusy}
-                      onChange={(event) => updateDelivery(o.order_id, event.target.value)}
-                    >
-                      {Object.entries(deliveryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
-                  </label>
+                  <DeliveryEditor key={`${o.order_id}-${o.delivery_status}-${o.delivery_estimate}`} order={o} busy={dmBusy} onSave={updateDelivery} />
                 )}
                 {o.order_status === "pending_approval" && <div className="mt-2 flex gap-2"><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,true)} className="rounded-lg border border-emerald-300/50 px-3 py-1">Approve</button><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,false)} className="rounded-lg border border-rose-300/50 px-3 py-1">Reject & Refund</button></div>}
               </div>)}</div>}
@@ -1587,10 +1617,10 @@ export default function LumaPrimeMarketplace() {
         ) : null}
 
         <section className="mb-6 grid gap-4 xl:grid-cols-[1.15fr_1fr]">
-          <div className="rounded-[2rem] border border-cyan-300/15 bg-black/30 p-5 backdrop-blur">
+          <section className="rounded-[2rem] border border-cyan-300/15 bg-black/30 p-5 backdrop-blur" aria-labelledby="player-dashboard-label">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Player Dashboard</p>
+                <p id="player-dashboard-label" className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Player Dashboard</p>
                 <h2 className="mt-2 text-2xl font-black text-white">{profile ? `${profile.username}'s profile` : "Guest traveler"}</h2>
               </div>
               {sessionToken && profile ? (
@@ -1604,11 +1634,7 @@ export default function LumaPrimeMarketplace() {
               <p className="text-sm leading-relaxed text-slate-200">Create an account or log in to save favorites, view your watchlist, and unlock badges that grow with your playstyle.</p>
             ) : (
               <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Logins</p>
-                    <p className="mt-2 text-2xl font-bold text-cyan-100">{profile.loginCount}</p>
-                  </div>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                     <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Favorites</p>
                     <p className="mt-2 text-2xl font-bold text-fuchsia-100">{favorites.length}</p>
@@ -1625,6 +1651,11 @@ export default function LumaPrimeMarketplace() {
                     {badgeList.length ? badgeList.map((badge) => <Badge key={badge.name} className={`${badge.tone}`}>{badge.name}</Badge>) : <Badge className="border-white/10 bg-white/5 text-slate-200">No badges yet</Badge>}
                   </div>
                 </div>
+
+                <button type="button" className={`w-full ${accountButton}`} aria-expanded={showOrders} aria-controls={showOrders ? "my-orders" : undefined} onClick={() => setShowOrders((visible) => !visible)}>
+                  {showOrders ? "Hide My Orders & Deliveries" : "My Orders & Deliveries"}
+                </button>
+                {showOrders && <MyOrders key={`${profile.id}-${ordersRevision}`} token={sessionToken} />}
               </div>
             )}
 
@@ -1663,7 +1694,7 @@ export default function LumaPrimeMarketplace() {
               )}
               {profile && <FundingRequests key={profile.id} token={sessionToken} />}
             </div>
-          </div>
+          </section>
 
           <div className="rounded-[2rem] border border-amber-300/15 bg-amber-400/5 p-5 backdrop-blur">
             <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-200">Wish Vault</p>
