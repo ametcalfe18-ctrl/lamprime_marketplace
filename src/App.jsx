@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins } from "lucide-react";
+import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, Heart, Filter, Orbit, Recycle, UserRound, ChevronRight, Plus, Minus, X, Coins } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
@@ -130,7 +130,7 @@ function catalogItem(product, original = {}) {
   return {
     subtitle: "", vendor: "", manufacturer: "", description: "", quote: "",
     category: "General", attunement: "—", features: [], tags: [],
-    accent: "from-cyan-400 to-fuchsia-500",
+    accent: "from-mint-400 to-amber-500",
     ...original,
     ...details,
     id: product.product_id,
@@ -312,7 +312,7 @@ const fundingLabels = {
   redeemed: "Code redeemed",
   declined: "Declined"
 };
-const accountButton = "rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50";
+const accountButton = "rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-2 text-sm font-semibold text-mint-100 disabled:opacity-50";
 const accountInput = "w-full rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-white";
 const accountCard = "rounded-xl border border-white/10 bg-black/25 p-3 text-sm";
 
@@ -340,7 +340,7 @@ function MyOrders({ token }) {
   const { rows, busy, error, page, setPage, refresh } = useMarketplaceList(load);
 
   return (
-    <section id="my-orders" className="rounded-2xl border border-cyan-300/15 bg-black/30 p-4" aria-labelledby="my-orders-title">
+    <section id="my-orders" className="rounded-2xl border border-mint-300/15 bg-black/30 p-4" aria-labelledby="my-orders-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 id="my-orders-title" className="text-lg font-bold">My Orders &amp; Deliveries</h3>
         <button type="button" className={accountButton} disabled={busy} onClick={refresh}>Refresh orders</button>
@@ -371,7 +371,7 @@ function MyOrders({ token }) {
                   </li>
                 ))}
               </ul>
-              <p className="text-cyan-100">
+              <p className="text-mint-100">
                 {formatCurrency(order.order_total)} {["rejected", "refunded"].includes(order.order_status) ? "returned to wallet" : order.order_status === "pending_approval" ? "reserved" : "order total"}
               </p>
               {order.delivery_status && (
@@ -382,8 +382,8 @@ function MyOrders({ token }) {
                   )}
                   {order.delivery_events?.length > 0 && (
                     <details className="mt-2 text-slate-200">
-                      <summary className="cursor-pointer text-cyan-100">Tracking history</summary>
-                      <ol className="mt-2 space-y-2 border-l border-cyan-300/25 pl-3">
+                      <summary className="cursor-pointer text-mint-100">Tracking history</summary>
+                      <ol className="mt-2 space-y-2 border-l border-mint-300/25 pl-3">
                         {order.delivery_events.map((event, index) => (
                           <li key={index} className="flex flex-wrap justify-between gap-x-3">
                             <span>{deliveryLabels[event.status]}</span>
@@ -539,7 +539,7 @@ function FundingRequests({ token, isDm = false }) {
               <strong>{isDm ? `${request.player_name} · ` : ""}{formatCurrency(request.amount)}</strong>
               <span className="text-amber-100">{fundingLabels[request.request_status]}</span>
             </div>
-            <a href={request.character_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-cyan-200 underline">View character sheet</a>
+            <a href={request.character_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-mint-200 underline">View character sheet</a>
             <time className="ml-2 text-xs text-slate-300" dateTime={request.requested_at}>{new Date(request.requested_at).toLocaleDateString()}</time>
             {isDm && request.request_status === "pending" && (
               <div className="mt-2 flex gap-2">
@@ -560,71 +560,87 @@ function Badge({ children, className = "" }) {
 
 function StatRow({ label, value }) {
   return (
-    <div className="grid grid-cols-5 gap-3 border-b border-cyan-300/10 py-3 last:border-b-0">
-      <div className="col-span-2 text-xs font-semibold uppercase tracking-widest text-cyan-300">{label}</div>
+    <div className="grid grid-cols-5 gap-3 border-b border-mint-300/10 py-3 last:border-b-0">
+      <div className="col-span-2 text-xs font-semibold uppercase tracking-widest text-mint-300">{label}</div>
       <div className="col-span-3 text-sm text-slate-100">{value}</div>
     </div>
   );
 }
 
-function WorldNoticeCard({ badge, title, copy, tone = "cyan" }) {
-  const toneStyles = {
-    cyan: "border-cyan-300/20 bg-cyan-400/10 text-cyan-100",
-    amber: "border-amber-300/20 bg-amber-400/10 text-amber-100",
-    fuchsia: "border-fuchsia-300/20 bg-fuchsia-500/10 text-fuchsia-100",
-    rose: "border-rose-300/20 bg-rose-500/10 text-rose-100"
-  };
+const fieldAds = [
+  {
+    id: "obsidian", name: "Obsidian Silent Delivery", icon: Truck,
+    headline: "Your parcel was never here.",
+    copy: "Discreet delivery for cargo that prefers a quiet entrance.",
+    action: "View service",
+    details: "Ask your DM whether Obsidian Silent Delivery serves your current port. Deliveries can be arranged with the courier in-game."
+  },
+  {
+    id: "spiral", name: "Spiral Gate Transit", icon: Orbit,
+    headline: "One jump. Nine realms.",
+    copy: "Need a gate route? Try the departure board.",
+    action: "Check departures",
+    details: "Departure times vary by realm, gate conditions, and how long customs spends inspecting your luggage. Ask at the next Spiral Gate terminal for current routes."
+  },
+  {
+    id: "scrap", name: "Scrap Exchange Network", icon: Recycle,
+    headline: "Turn your junk into Lumina.",
+    copy: "That questionable crate might be worth something.",
+    action: "Get a quote",
+    details: "Bring salvage to a Scrap Exchange broker in-game. Appraisals depend on condition, origin, and whether the crate is making that noise on purpose."
+  }
+];
+
+function FieldReports() {
+  const [dismissed, setDismissed] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const visible = fieldAds.filter((ad) => !dismissed.includes(ad.id));
 
   return (
-    <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-4 backdrop-blur">
-      <p className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${toneStyles[tone]}`}>{badge}</p>
-      <h3 className="mt-3 text-lg font-bold text-white">{title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-slate-200">{copy}</p>
-    </div>
+    <aside className="field-reports" aria-labelledby="field-reports-title">
+      <div className="field-reports-header">
+        <h2 id="field-reports-title">Field Reports</h2>
+        <span>Sponsored</span>
+      </div>
+      {visible.map(({ id, name, icon: Icon, headline, copy, action, details }) => (
+        <article key={id} className={`field-ad field-ad-${id}`}>
+          <button type="button" className="field-ad-close" aria-label={`Dismiss ${name} ad`} onClick={() => setDismissed((ads) => [...ads, id])}><X size={14} /></button>
+          <div className="field-ad-name"><Icon size={14} aria-hidden="true" />{name}</div>
+          <h3>{headline}</h3>
+          <p>{copy}</p>
+          <button type="button" className="field-ad-action" aria-expanded={expanded === id} onClick={() => setExpanded((current) => current === id ? null : id)}>
+            {expanded === id ? "Close" : action} <ChevronRight size={14} aria-hidden="true" />
+          </button>
+          {expanded === id && <p className="field-ad-details">{details}</p>}
+        </article>
+      ))}
+      {!visible.length && <button type="button" className="field-ad-action" onClick={() => setDismissed([])}>Show sponsored ads</button>}
+    </aside>
   );
 }
 
-function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, className = "" }) {
+function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, favoriteDisabled, onAddToCart, purchasable, approval }) {
   return (
-    <div className={`overflow-hidden rounded-2xl border text-left transition ${selected ? "border-fuchsia-400/70 bg-fuchsia-400/10" : "border-white/10 bg-white/[0.03] hover:border-cyan-300/50 hover:bg-white/[0.06]"} ${className}`}>
-      <button onClick={onClick} className="group w-full">
-        <div className="relative h-28 overflow-hidden">
-          <img src={getItemDisplayImage(item)} alt="" className="h-full w-full object-cover opacity-60 transition group-hover:scale-105" />
-          <div className={`absolute inset-0 bg-gradient-to-t ${item.accent} opacity-35`} />
-          <div className="absolute bottom-3 left-3 right-3">
-            <p className="text-sm font-bold text-white">{item.name}</p>
-            <p className="text-xs text-slate-200">{formatCurrency(getPriceValue(item))}</p>
-          </div>
-        </div>
+    <article className={`catalog-card ${selected ? "catalog-card-selected" : ""}`}>
+      <button type="button" className="catalog-image" onClick={onClick} aria-label={`View ${item.name}`} aria-pressed={selected}>
+        <img src={getItemDisplayImage(item)} alt="" loading="lazy" width="288" height="180" />
       </button>
-      <div className="space-y-2 px-3 pb-3 pt-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-[0.2em] text-slate-300">{isFavorite ? "Saved" : "Wishlist"}</span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleFavorite?.(item.id);
-            }}
-            disabled={favoriteDisabled}
-            aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`}
-            className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-100 transition hover:border-fuchsia-300/60"
-          >
-            <Heart className={`h-4 w-4 ${isFavorite ? "fill-fuchsia-300 text-fuchsia-300" : "text-slate-200"}`} />
+      <button type="button" onClick={() => onToggleFavorite(item.id)} disabled={favoriteDisabled} aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`} className="catalog-heart">
+        <Heart size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
+      </button>
+      <div className="catalog-info">
+        <p className="catalog-rarity">{item.rarity}</p>
+        <button type="button" className="catalog-title" onClick={onClick}>{item.name}</button>
+        <div className="catalog-footer">
+          <span>{formatCurrency(getPriceValue(item))}</span>
+          <button type="button" onClick={() => onAddToCart(item)} disabled={!purchasable} className="catalog-cart" aria-label={`Add ${item.name} to cart`} title={approval ? "Requires DM approval" : "Add to cart"}>
+            <ShoppingCart size={16} aria-hidden="true" />
           </button>
         </div>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onAddToCart?.(item);
-          }}
-          className="w-full rounded-xl border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
-        >
-          Add to cart
-        </button>
+        {!purchasable && <p className="catalog-stock">{item.availability === "Sold out" ? "Sold out" : "Availability pending"}</p>}
+        {purchasable && approval && <p className="catalog-stock">DM approval required</p>}
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -644,7 +660,7 @@ function deriveBadges(profile, favoriteCount) {
   }
 
   if (profile.loginCount <= 1) {
-    badges.push({ name: "New Recruit", tone: "border-cyan-300/40 bg-cyan-500/10 text-cyan-100" });
+    badges.push({ name: "New Recruit", tone: "border-mint-300/40 bg-mint-500/10 text-mint-100" });
   }
 
   if (favoriteCount >= 3) {
@@ -652,7 +668,7 @@ function deriveBadges(profile, favoriteCount) {
   }
 
   if (favoriteCount >= 5) {
-    badges.push({ name: "Collector", tone: "border-fuchsia-300/40 bg-fuchsia-500/10 text-fuchsia-100" });
+    badges.push({ name: "Collector", tone: "border-amber-300/40 bg-amber-500/10 text-amber-100" });
   }
 
   if (profile.loginCount >= 5) {
@@ -660,7 +676,7 @@ function deriveBadges(profile, favoriteCount) {
   }
 
   if (favoriteCount >= 8) {
-    badges.push({ name: "Legend", tone: "border-purple-300/40 bg-purple-500/10 text-purple-100" });
+    badges.push({ name: "Legend", tone: "border-emerald-300/40 bg-emerald-500/10 text-emerald-100" });
   }
 
   return badges;
@@ -692,7 +708,7 @@ function hashString(value) {
 }
 
 function buildPlaceholderImage(item) {
-  const palette = ["#0f172a", "#1d4ed8", "#7c3aed", "#f59e0b", "#ec4899", "#0f766e"];
+  const palette = ["#102c21", "#194838", "#0d382c", "#63502b", "#21453a", "#15382d"];
   const seed = hashString(item.name || item.id || "item");
   const bg1 = palette[seed % palette.length];
   const bg2 = palette[(seed + 3) % palette.length];
@@ -720,11 +736,15 @@ function buildPlaceholderImage(item) {
 }
 
 function getItemDisplayImage(item) {
-  if (!item?.image) {
-    return buildPlaceholderImage(item);
-  }
+  if (item?.image && !item.image.startsWith("/images/")) return item.image;
 
-  return item.image.startsWith("/images/") ? buildPlaceholderImage(item) : item.image;
+  const artwork = {
+    "LP-COIN-0001": "coin",
+    "LP-BRACELET-0002": "bracelets",
+    "LP-PEEPHOLE-0003": "peephole",
+    "LP-PUPPY-0004": "puppies"
+  }[item.id];
+  return artwork ? `/lumaprime/${artwork}.webp` : buildPlaceholderImage(item);
 }
 
 function getAllTags(items) {
@@ -748,6 +768,8 @@ export default function LumaPrimeMarketplace() {
   const [walletBalance, setWalletBalance] = useState(null);
   const [isDmAdmin, setIsDmAdmin] = useState(false);
   const [showDmDashboard, setShowDmDashboard] = useState(false);
+  const [showAccount, setShowAccount] = useState(isRecoveryCallback || callbackFailed || recoveryRequested);
+  const [visibleListings, setVisibleListings] = useState(8);
   const [dmDepositAmount, setDmDepositAmount] = useState("100");
   const [generatedDmCode, setGeneratedDmCode] = useState("");
   const [generatingDmCode, setGeneratingDmCode] = useState(false);
@@ -850,9 +872,11 @@ export default function LumaPrimeMarketplace() {
   function updateSearch(value) {
     setQuery(value);
     setSearchSelectionId(null);
+    setVisibleListings(8);
   }
 
-  function openListing(itemId) {
+  function openListing(itemId, scrollToListing = false) {
+    if (scrollToListing) requestAnimationFrame(() => listingPanel.current?.scrollIntoView?.({ block: "start", behavior: "instant" }));
     if (searchQuery && matches.some((item) => item.id === itemId)) {
       setSearchSelectionId(itemId);
     } else {
@@ -892,68 +916,6 @@ export default function LumaPrimeMarketplace() {
   const tagOptions = ["All", ...getAllTags(items)];
   const rarityOptions = ["All", ...Array.from(new Set(items.map((item) => item.rarity)))];
   const balance = walletBalance ?? 0;
-  const worldNotices = useMemo(() => {
-    const notices = [
-      {
-        badge: "Sponsored",
-        title: "Harbor Supply Drop",
-        copy: "Duty-gear, recovery kits, and courier bundles are under a short-term premium discount near the dockside quarter.",
-        tone: "cyan"
-      },
-      {
-        badge: "Field Bulletin",
-        title: "Gate Watch Update",
-        copy: "Transit density is rising at the Spiral Gate. Travelers who carry high-value items are advised to keep paperwork and travel signatures current.",
-        tone: "amber"
-      },
-      {
-        badge: "Guild Notice",
-        title: "Curio Demand Spike",
-        copy: "Collectors are increasingly seeking recovery, healing, and utility relics. Inventory specialists expect more competition around the end of the cycle.",
-        tone: "fuchsia"
-      }
-    ];
-
-    if (profile) {
-      notices.push({
-        badge: "Player Bulletin",
-        title: `${profile.username} has a fresh watchlist`,
-        copy: `Your current watchlist contains ${favorites.length} listings, and local traders are reacting to the pattern of your selections.`,
-        tone: "cyan"
-      });
-    }
-
-    if (cartCount > 0) {
-      notices.push({
-        badge: "Market Echo",
-        title: "Cart activity is rising",
-        copy: `You have ${cartCount} item${cartCount === 1 ? "" : "s"} in motion. The market is trending toward faster fulfillment and higher demand in that lane.`,
-        tone: "amber"
-      });
-    }
-
-    if (selected && (selected.category.includes("Healing") || selected.tags.includes("Rest") || selected.tags.includes("Wellness"))) {
-      notices.push({
-        badge: "Public Notice",
-        title: `Recovery demand for ${selected.name}`,
-        copy: `The district is seeing stronger demand for recovery and wellness gear, and vendors are shifting their inventory toward the same lane.`,
-        tone: "fuchsia"
-      });
-    }
-
-    if (balance < 2500) {
-      notices.push({
-        badge: "Guild Warning",
-        title: "Budget tightening in the market",
-        copy: `Wallet reserves are tight. Smaller, high-utility purchases are currently moving faster than premium collector pieces.`,
-        tone: "amber"
-      });
-    }
-
-    const unique = Array.from(new Map(notices.map((notice) => [notice.title, notice])).values());
-    return unique.slice(0, 3);
-  }, [cartCount, balance, favorites.length, profile, selected]);
-
   const accountId = session?.user.id ?? null;
   const playerId = profile?.id;
   useEffect(() => {
@@ -1460,192 +1422,186 @@ export default function LumaPrimeMarketplace() {
     setStatus({ message: "Your cart is empty.", tone: "info" });
   };
 
-  const storefrontListings = (
-    <div className={`grid w-full min-w-0 gap-6 lg:grid-cols-[280px_1fr] ${searchQuery ? "mb-6" : ""}`}>
-      <aside className={`w-full min-w-0 space-y-4 ${searchQuery ? "order-2 lg:order-1" : ""}`}>
-        <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-300">Active Listings</p>
-          <div className="listing-scrollbar w-full min-w-0 overflow-x-auto pb-2 snap-x snap-mandatory">
-            <div className="flex w-max gap-3">
-              {filtered.map((item) => (
-                <ProductCard
-                  key={item.id}
-                  item={item}
-                  selected={item.id === selected?.id}
-                  isFavorite={isFavorite(item.id)}
-                  onToggleFavorite={handleToggleFavorite}
-                  favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
-                  onAddToCart={addToCart}
-                  onClick={() => openListing(item.id)}
-                  className="w-56 flex-none snap-start"
-                />
-              ))}
+  const selectedProduct = inventoryById.get(selected?.id);
+  const selectedPurchasable = Boolean(selectedProduct?.is_active && (selectedProduct.stock_quantity === null || selectedProduct.stock_quantity > 0));
+  const productDetails = (
+    <div ref={listingPanel} className="product-details-wrap">
+      {!selected ? (
+        <section className="self-start rounded-[2rem] border border-mint-300/15 bg-black/35 p-6" role="status">
+          <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
+          {searchQuery && <>
+            <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>
+              {(selectedTag !== "All" || selectedRarity !== "All") && (
+                <button type="button" className={accountButton} onClick={() => {
+                  setSelectedTag("All");
+                  setSelectedRarity("All");
+                }}>Clear filters</button>
+              )}
             </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-amber-300/20 bg-amber-400/5 p-4">
-          <div className="mb-2 flex items-center gap-2 text-amber-200"><AlertTriangle className="h-4 w-4" /><span className="text-sm font-semibold">Customs Advisory</span></div>
-          <p className="text-xs leading-relaxed text-slate-300">Items marked restricted may trigger port scans, Arrival Visa review, or confiscation in Pearl-controlled territories.</p>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-black/25 p-4 backdrop-blur">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Field Reports</p>
-          <div className="mt-3 space-y-3">
-            {worldNotices.map((notice) => (
-              <WorldNoticeCard key={`${notice.title}-sidebar`} badge={notice.badge} title={notice.title} copy={notice.copy} tone={notice.tone} />
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      <div ref={listingPanel} className={`min-w-0 scroll-mt-4 ${searchQuery ? "order-1 lg:order-2" : ""}`}>
-        {!selected ? (
-          <section className="self-start rounded-[2rem] border border-cyan-300/15 bg-black/35 p-6" role="status">
-            <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
-            {searchQuery && <>
-              <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>
-                {(selectedTag !== "All" || selectedRarity !== "All") && (
-                  <button type="button" className={accountButton} onClick={() => {
-                    setSelectedTag("All");
-                    setSelectedRarity("All");
-                  }}>Clear filters</button>
-                )}
+          </>}
+        </section>
+      ) : (
+        <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="product-detail">
+          <div className="product-detail-grid">
+            {/* Left: Large Product Image */}
+            <div className="product-detail-art">
+              <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-mint-300/20 shadow-lg">
+                <img src={getItemDisplayImage(selected)} alt={selected.name} className="w-full h-full object-cover" />
+                <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />
               </div>
-            </>}
-          </section>
-        ) : (
-          <motion.section key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-              {/* Left: Large Product Image */}
-              <div className="relative flex flex-col items-center justify-center bg-gradient-to-br from-black/80 to-slate-900/80 p-8 min-h-[600px]">
-                <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-cyan-300/20 shadow-lg">
-                  <img src={getItemDisplayImage(selected)} alt={selected.name} className="w-full h-full object-cover" />
-                  <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />
-                </div>
-                <div className="mt-6 flex flex-wrap gap-2 justify-center">
-                  {selected.tags.map((tag) => <Badge key={tag} className="border-cyan-300/30 bg-cyan-400/10 text-cyan-100">{tag}</Badge>)}
-                </div>
-                <div className="mt-6 flex flex-col items-center gap-2">
-                  <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-1 text-lg font-bold text-amber-100 flex items-center gap-2">
-                    {formatCurrency(getPriceValue(selected))}
-                  </span>
-                  <span className="rounded-full border border-purple-300/40 bg-purple-500/10 px-4 py-1 text-sm font-semibold text-purple-200">{selected.rarity}</span>
-                </div>
+              <div className="mt-6 flex flex-wrap gap-2 justify-center">
+                {selected.tags.map((tag) => <Badge key={tag} className="border-mint-300/30 bg-mint-400/10 text-mint-100">{tag}</Badge>)}
               </div>
-  
-              {/* Right: Details */}
-              <div className="flex flex-col gap-6 p-8">
-                <div>
-                  <p className="text-base font-semibold text-cyan-300 uppercase tracking-widest">{selected.subtitle}</p>
-                  <h1 className="mt-2 text-5xl font-black tracking-tight text-white drop-shadow-sm">{selected.name}</h1>
-                  <p className="mt-2 text-lg italic text-fuchsia-200">{selected.quote}</p>
-                </div>
-  
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Category</div>
-                    <div className="text-sm text-white">{selected.category}</div>
-                  </div>
-                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Manufacturer</div>
-                    <div className="text-sm text-white">{selected.manufacturer}</div>
-                  </div>
-                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Rarity Tier</div>
-                    <div className="text-sm text-white">{selected.rarity}</div>
-                  </div>
-                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Attunement</div>
-                    <div className="text-sm text-white">{selected.attunement}</div>
-                  </div>
-                  <div className="rounded-2xl border border-cyan-300/10 bg-black/30 p-4 col-span-2">
-                    <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-1">Availability</div>
-                    <div className="text-sm text-white">{selected.availability}</div>
-                  </div>
-                </div>
-  
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Leaf className="h-5 w-5 text-fuchsia-200" />
-                      <span className="text-lg font-bold text-fuchsia-200">Item Overview</span>
-                    </div>
-                    <p className="text-sm text-slate-200 leading-relaxed">{selected.description}</p>
-                  </div>
-                  <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <ShieldCheck className="h-5 w-5 text-cyan-200" />
-                      <span className="text-lg font-bold text-cyan-200">Potential Effects</span>
-                    </div>
-                    <ul className="space-y-2">
-                      {selected.features.map((feature) => (
-                        <li key={feature} className="flex gap-2 text-sm text-slate-100">
-                          <ChevronRight className="h-4 w-4 text-fuchsia-300 mt-0.5" />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-  
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <span className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">Listing ID: {selected.id}</span>
-                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white">Vendor: {selected.vendor}</span>
-                </div>
-  
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleFavorite(selected.id)}
-                    disabled={favoriteBusy || Boolean(profile && !wishLoaded)}
-                    className="rounded-full border border-fuchsia-300/40 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {favoriteBusy ? "Saving..." : isFavorite(selected.id) ? "Favorited" : "Add to watchlist"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addToCart(selected)}
-                    className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
-                  >
-                    Add to cart
-                  </button>
-                </div>
-  
-                <div className="flex items-center gap-3 mt-6">
-                  <div className="flex items-center gap-1 text-amber-300">
-                    {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
-                  </div>
-                  <span className="text-xs text-slate-300">{selected.rating ? `${selected.rating} verified rating` : "No ratings yet"}</span>
-                </div>
+              <div className="mt-6 flex flex-col items-center gap-2">
+                <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-4 py-1 text-lg font-bold text-amber-100 flex items-center gap-2">
+                  {formatCurrency(getPriceValue(selected))}
+                </span>
+                <span className="rounded-full border border-emerald-300/40 bg-emerald-500/10 px-4 py-1 text-sm font-semibold text-emerald-200">{selected.rarity}</span>
               </div>
             </div>
-          </motion.section>
-        )}
-      </div>
+
+            {/* Right: Details */}
+            <div className="flex min-w-0 flex-col gap-5 p-5 sm:p-7">
+              <div>
+                <p className="text-xs font-semibold text-mint-300 uppercase tracking-widest">{selected.subtitle}</p>
+                <h2 className="detail-title">{selected.name}</h2>
+                <p className="mt-2 text-lg italic text-amber-200">{selected.quote}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Category</div>
+                  <div className="text-sm text-white">{selected.category}</div>
+                </div>
+                <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Manufacturer</div>
+                  <div className="text-sm text-white">{selected.manufacturer}</div>
+                </div>
+                <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Rarity Tier</div>
+                  <div className="text-sm text-white">{selected.rarity}</div>
+                </div>
+                <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Attunement</div>
+                  <div className="text-sm text-white">{selected.attunement}</div>
+                </div>
+                <div className="rounded-2xl border border-mint-300/10 bg-black/30 p-4 col-span-2">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-mint-300 mb-1">Availability</div>
+                  <div className="text-sm text-white">{selected.availability}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Leaf className="h-5 w-5 text-amber-200" />
+                    <span className="text-lg font-bold text-amber-200">Item Overview</span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-relaxed">{selected.description}</p>
+                </div>
+                <div className="rounded-2xl border border-mint-300/20 bg-mint-400/10 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="h-5 w-5 text-mint-200" />
+                    <span className="text-lg font-bold text-mint-200">Potential Effects</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {selected.features.map((feature) => (
+                      <li key={feature} className="flex gap-2 text-sm text-slate-100">
+                        <ChevronRight className="h-4 w-4 text-amber-300 mt-0.5" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-2">
+                <span className="rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-1 text-xs font-semibold text-mint-100">Listing ID: {selected.id}</span>
+                <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white">Vendor: {selected.vendor}</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => handleToggleFavorite(selected.id)}
+                  disabled={favoriteBusy || Boolean(profile && !wishLoaded)}
+                  className="rounded-full border border-amber-300/40 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {favoriteBusy ? "Saving…" : isFavorite(selected.id) ? "Saved to Wish Vault" : "Save to Wish Vault"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addToCart(selected)}
+                  disabled={!selectedPurchasable}
+                  className="rounded-full border border-mint-300/40 bg-mint-400/10 px-4 py-2 text-sm font-semibold text-mint-100 transition hover:bg-mint-400/20"
+                >
+                  Add to cart
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 mt-6">
+                <div className="flex items-center gap-1 text-amber-300">
+                  {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
+                </div>
+                <span className="text-xs text-slate-300">{selected.rating ? `${selected.rating} verified rating` : "No ratings yet"}</span>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+      )}
     </div>
   );
 
-  return (
-    <div className="min-h-screen bg-[#050815] text-white">
-      <div className="fixed inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(0,215,255,.20),transparent_32%),radial-gradient(circle_at_80%_10%,rgba(220,38,255,.16),transparent_28%),linear-gradient(180deg,#050815,#07111d_45%,#04040a)]" />
-      <div className="fixed inset-0 opacity-[0.05]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.8) 1px, transparent 1px)", backgroundSize: "42px 42px" }} />
-
-      <main className="relative mx-auto max-w-7xl overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-col gap-4 rounded-3xl border border-cyan-300/15 bg-black/30 p-5 shadow-2xl shadow-cyan-950/40 backdrop-blur md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-400/10">
-              <Sparkles className="h-7 w-7 text-cyan-300" />
-            </div>
-            <div>
-              <div className="text-2xl font-black tracking-tight"><span className="text-white">LUMA</span><span className="text-cyan-300">PRIME</span></div>
-              <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Trade beyond worlds</p>
-            </div>
+  const storefrontListings = (
+    <section className="market-grid" aria-label="Marketplace" id="marketplace">
+      <div className="market-catalog">
+        <div className="market-heading">
+          <div>
+            <h2>{searchQuery ? "Search results" : "Active Listings"}</h2>
+            <p aria-live="polite">{filtered.length} {filtered.length === 1 ? "listing" : "listings"}{searchQuery ? ` for “${query.trim()}”` : ""}</p>
           </div>
+          {searchQuery && <button type="button" className={accountButton} onClick={() => updateSearch("")}>Clear search</button>}
+          {!searchQuery && <button type="button" className={accountButton} onClick={() => setShowFilters((open) => !open)} aria-expanded={showFilters}><Filter size={14} /> Filters</button>}
+        </div>
+        {searchQuery && productDetails}
+        {filtered.length > 0 && (
+          <div className="catalog-grid">
+            {filtered.slice(0, visibleListings).map((item) => {
+              const product = inventoryById.get(item.id);
+              return (
+                <ProductCard key={item.id} item={item} selected={item.id === selected?.id}
+                  isFavorite={isFavorite(item.id)} onToggleFavorite={handleToggleFavorite}
+                  favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
+                  onAddToCart={addToCart}
+                  purchasable={Boolean(product?.is_active && (product.stock_quantity === null || product.stock_quantity > 0))}
+                  approval={product?.requires_dm_approval}
+                  onClick={() => openListing(item.id, true)}
+                />
+              );
+            })}
+          </div>
+        )}
+        {filtered.length > visibleListings && (
+          <button type="button" className={`mt-3 ${accountButton}`} onClick={() => setVisibleListings((count) => count + 8)}>Show more listings</button>
+        )}
+      </div>
+      <FieldReports />
+      {!searchQuery && productDetails}
+    </section>
+  );
 
-          <div className="flex flex-1 items-center gap-3 md:max-w-md">
+  return (
+    <div className="store-shell">
+      <main className="store-main">
+        <header className="store-header">
+          <a className="store-brand" href="#" aria-label="LumaPrime home" onClick={() => updateSearch("")}>
+            <img src="/lumaprime/liquid-light-logo.webp" alt="" width="84" height="54" />
+            <span className="store-wordmark">LUMA<em>PRIME</em></span>
+          </a>
+
+          <div className="store-search">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -1656,42 +1612,43 @@ export default function LumaPrimeMarketplace() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && searchQuery) listingPanel.current?.scrollIntoView?.({ block: "start" });
                 }}
-                placeholder="Search relics, vendors, categories..." className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60" />
+                placeholder="Search the marketplace" className="store-search-input" />
             </div>
             <button
               type="button"
               onClick={() => setShowFilters((current) => !current)}
-              className={`rounded-2xl border p-3 transition ${showFilters ? "border-cyan-300/60 bg-cyan-400/15 text-cyan-100" : "border-white/10 bg-white/5 text-slate-200 hover:border-fuchsia-300/60"}`}
+              aria-label="Marketplace filters" aria-expanded={showFilters}
+              className="store-icon-button"
             >
               <Filter className="h-5 w-5" />
             </button>
             <button
               type="button"
               onClick={() => setShowCart((current) => !current)}
-              className="relative rounded-2xl border border-fuchsia-300/30 bg-fuchsia-500/10 p-3 text-fuchsia-200 hover:bg-fuchsia-500/20"
+              aria-label={`Shopping cart (${cartCount})`}
+              className="store-icon-button store-cart-button"
             >
               <ShoppingCart className="h-5 w-5" />
               {cartCount > 0 ? (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-cyan-300 px-1 text-[10px] font-black text-slate-950">
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-mint-300 px-1 text-[10px] font-black text-slate-950">
                   {cartCount}
                 </span>
               ) : null}
             </button>
           </div>
 
-          <div className="w-full rounded-2xl border border-cyan-300/20 bg-white/[0.03] p-3 md:max-w-sm">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300">Player Session</p>
-                <p className="text-xs text-slate-300">Secure LumaPrime account</p>
-              </div>
-              {sessionToken ? (
-                <span className="rounded-full border border-emerald-300/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">Online</span>
-              ) : (
-                <span className="rounded-full border border-amber-300/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100">Offline</span>
-              )}
-            </div>
-
+          <div className="store-account" onKeyDown={(event) => {
+            if (event.key === "Escape" && showAccount) {
+              setShowAccount(false);
+              event.currentTarget.querySelector(".store-account-toggle")?.focus();
+            }
+          }}>
+            <button type="button" className="store-account-toggle" aria-expanded={showAccount} aria-controls="store-account-panel"
+              onClick={() => setShowAccount((visible) => !visible)}>
+              <UserRound size={18} aria-hidden="true" />
+              <span>{profile?.username || "Account"}</span>
+            </button>
+            <div id="store-account-panel" className="store-account-panel" hidden={!showAccount}>
             {!authReady ? (
               <p role="status" className="text-sm text-slate-300">Restoring session…</p>
             ) : sessionToken && !profile ? (
@@ -1706,13 +1663,17 @@ export default function LumaPrimeMarketplace() {
             ) : sessionToken && profile ? (
               <div className="space-y-2">
                 <p className="text-sm text-slate-100">Signed in as <span className="font-semibold text-white">{profile.username}</span></p>
-                <p className="text-xs text-slate-300">Last login: {formatLoginDate(profile.lastLoginAt)}</p>
+                <a href="#player-dashboard" className="block text-sm text-mint-200 underline" onClick={() => setShowAccount(false)}>Player Dashboard</a>
                 {isDmAdmin ? (
-                  <button type="button" onClick={() => setShowDmDashboard((visible) => !visible)} className="w-full rounded-xl border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-400/20">
-                    {showDmDashboard ? "Hide DM Dashboard" : "DM Dashboard"}
+                  <button type="button" onClick={() => {
+                    setShowDmDashboard(true);
+                    setShowAccount(false);
+                    requestAnimationFrame(() => document.getElementById("dm-dashboard")?.scrollIntoView?.({ block: "start" }));
+                  }} className="w-full rounded-xl border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-400/20">
+                    DM Dashboard
                   </button>
                 ) : null}
-                <button onClick={handleLogout} disabled={checkoutBusy || loadingAuth} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-fuchsia-300/50 hover:bg-fuchsia-500/10">
+                <button onClick={handleLogout} disabled={checkoutBusy || loadingAuth} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:border-amber-300/50 hover:bg-amber-500/10">
                   Log out
                 </button>
               </div>
@@ -1754,20 +1715,38 @@ export default function LumaPrimeMarketplace() {
                 <button type="submit" className={`w-full ${accountButton}`} disabled={loadingAuth}>
                   {loadingAuth ? "Working…" : { login: "Sign in", register: "Create account", forgot: "Send reset link", reset: "Save new password" }[authMode]}
                 </button>
-                {authMode === "login" && <button type="button" className="text-sm text-cyan-200 underline" disabled={loadingAuth} onClick={() => changeAuthMode("forgot")}>Forgot password?</button>}
-                {authMode === "forgot" && <button type="button" className="text-sm text-cyan-200 underline" disabled={loadingAuth} onClick={() => changeAuthMode("login")}>Back to login</button>}
-                {authMode === "reset" && <button type="button" className="text-sm text-cyan-200 underline" disabled={loadingAuth} onClick={handleLogout}>Cancel reset</button>}
+                {authMode === "login" && <button type="button" className="text-sm text-mint-200 underline" disabled={loadingAuth} onClick={() => changeAuthMode("forgot")}>Forgot password?</button>}
+                {authMode === "forgot" && <button type="button" className="text-sm text-mint-200 underline" disabled={loadingAuth} onClick={() => changeAuthMode("login")}>Back to login</button>}
+                {authMode === "reset" && <button type="button" className="text-sm text-mint-200 underline" disabled={loadingAuth} onClick={handleLogout}>Cancel reset</button>}
                 {status.message && <p role={status.tone === "warning" ? "alert" : "status"} className={`text-xs ${status.tone === "warning" ? "text-rose-200" : status.tone === "success" ? "text-emerald-200" : "text-slate-200"}`}>{status.message}</p>}
               </form>
             )}
+            </div>
           </div>
         </header>
 
+        {!searchQuery && (
+          <section className="store-hero" aria-labelledby="store-hero-title">
+            <div className="store-hero-content">
+              <p className="hero-kicker">LUMAPRIME MARKETPLACE</p>
+              <h1 id="store-hero-title">Trade beyond<br /><em>worlds.</em></h1>
+              <p>Browse enchanted gear and everyday goods from across the Nine Realms.</p>
+              <a className="hero-button" href="#marketplace">Browse listings <ChevronRight size={17} aria-hidden="true" /></a>
+            </div>
+          </section>
+        )}
+        <aside className="customs-warning" aria-label="Customs advisory">
+          <AlertTriangle size={19} aria-hidden="true" />
+          <strong>Customs advisory</strong>
+          <p>Restricted items may trigger port scans or Arrival Visa review in Pearl-controlled territories.</p>
+        </aside>
+
+
         {showFilters ? (
-          <div className="mb-6 rounded-[2rem] border border-cyan-300/15 bg-black/35 p-5 backdrop-blur">
+          <div className="mb-6 rounded-[2rem] border border-mint-300/15 bg-black/35 p-5 backdrop-blur">
             <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Sort</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Sort</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {[
                     { id: "featured", label: "Featured" },
@@ -1778,7 +1757,7 @@ export default function LumaPrimeMarketplace() {
                       key={option.id}
                       type="button"
                       onClick={() => setSortMode(option.id)}
-                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${sortMode === option.id ? "border-cyan-300/50 bg-cyan-400/15 text-cyan-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-fuchsia-300/50"}`}
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${sortMode === option.id ? "border-mint-300/50 bg-mint-400/15 text-mint-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-amber-300/50"}`}
                     >
                       {option.label}
                     </button>
@@ -1788,14 +1767,14 @@ export default function LumaPrimeMarketplace() {
 
               <div className="space-y-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Tag filter</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Tag filter</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {tagOptions.map((tag) => (
                       <button
                         key={tag}
                         type="button"
                         onClick={() => setSelectedTag(tag)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selectedTag === tag ? "border-fuchsia-300/60 bg-fuchsia-500/10 text-fuchsia-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-cyan-300/50"}`}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selectedTag === tag ? "border-amber-300/60 bg-amber-500/10 text-amber-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-mint-300/50"}`}
                       >
                         {tag}
                       </button>
@@ -1804,14 +1783,14 @@ export default function LumaPrimeMarketplace() {
                 </div>
 
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Rarity filter</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Rarity filter</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {rarityOptions.map((rarity) => (
                       <button
                         key={rarity}
                         type="button"
                         onClick={() => setSelectedRarity(rarity)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selectedRarity === rarity ? "border-amber-300/60 bg-amber-500/10 text-amber-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-cyan-300/50"}`}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selectedRarity === rarity ? "border-amber-300/60 bg-amber-500/10 text-amber-100" : "border-white/10 bg-white/5 text-slate-100 hover:border-mint-300/50"}`}
                       >
                         {rarity}
                       </button>
@@ -1823,13 +1802,15 @@ export default function LumaPrimeMarketplace() {
           </div>
         ) : null}
 
-        {searchQuery && storefrontListings}
+        {storefrontListings}
 
         {isDmAdmin && showDmDashboard && profile ? (
-          <section className="mb-6 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">DM Only</p>
-            <h2 className="mt-2 text-2xl font-black text-white">LumaPrime DM Dashboard</h2>
-            <p className="mt-2 text-sm text-slate-300">Generate a single-use Lumina deposit code. Supabase checks your administrator permission before issuing it.</p>
+          <section id="dm-dashboard" className="mb-6 scroll-mt-4 rounded-[2rem] border border-amber-300/30 bg-black/40 p-5" aria-label="DM Dashboard">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-2xl font-bold text-white">DM Dashboard</h2>
+              <button type="button" className={accountButton} onClick={() => setShowDmDashboard(false)}>Close dashboard</button>
+            </div>
+            <p className="mt-2 text-sm text-slate-300">Generate a single-use Lumina deposit code.</p>
             <form onSubmit={generateDmDepositCode} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="flex-1 text-sm text-slate-200">
                 Lumina amount
@@ -1929,11 +1910,11 @@ export default function LumaPrimeMarketplace() {
           </section>
         ) : null}
 
-        <section className="mb-6 grid gap-4 xl:grid-cols-[1.15fr_1fr]">
-          <section className="rounded-[2rem] border border-cyan-300/15 bg-black/30 p-5 backdrop-blur" aria-labelledby="player-dashboard-label">
+        <section id="player-dashboard" className="player-grid mb-6 grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+          <section className="rounded-[2rem] border border-mint-300/15 bg-black/30 p-5 backdrop-blur" aria-labelledby="player-dashboard-label">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p id="player-dashboard-label" className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Player Dashboard</p>
+                <p id="player-dashboard-label" className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Player Dashboard</p>
                 <h2 className="mt-2 text-2xl font-black text-white">{profile ? `${profile.username}'s profile` : "Guest traveler"}</h2>
               </div>
               {sessionToken && profile ? (
@@ -1950,7 +1931,7 @@ export default function LumaPrimeMarketplace() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                     <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Favorites</p>
-                    <p className="mt-2 text-2xl font-bold text-fuchsia-100">{favorites.length}</p>
+                    <p className="mt-2 text-2xl font-bold text-amber-100">{favorites.length}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                     <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Member since</p>
@@ -1959,7 +1940,7 @@ export default function LumaPrimeMarketplace() {
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300">Profile badges</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-mint-300">Profile badges</p>
                   <div className="flex flex-wrap gap-2">
                     {badgeList.length ? badgeList.map((badge) => <Badge key={badge.name} className={`${badge.tone}`}>{badge.name}</Badge>) : <Badge className="border-white/10 bg-white/5 text-slate-200">No badges yet</Badge>}
                   </div>
@@ -1972,8 +1953,8 @@ export default function LumaPrimeMarketplace() {
               </div>
             )}
 
-            <div className="mt-4 rounded-[2rem] border border-cyan-300/15 bg-slate-950/60 p-5 backdrop-blur">
-              <h3 className="text-sm font-bold text-cyan-100">Lumina Wallet</h3>
+            <div className="mt-4 rounded-[2rem] border border-mint-300/15 bg-slate-950/60 p-5 backdrop-blur">
+              <h3 className="text-sm font-bold text-mint-100">Lumina Wallet</h3>
               <p className="mt-2 text-2xl font-bold text-white">{profile ? formatCurrency(balance) : "Sign in to see your balance"}</p>
               <p className="mt-1 text-xs text-slate-300">Refresh the page to see balance changes made by your DM.</p>
 
@@ -2028,7 +2009,7 @@ export default function LumaPrimeMarketplace() {
                         <p className="text-sm font-semibold text-white">{item.name}</p>
                         <p className="text-xs text-slate-300">{formatCurrency(getPriceValue(item))}</p>
                       </div>
-                      <button onClick={() => openListing(item.id)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">View</button>
+                      <button onClick={() => openListing(item.id, true)} className="rounded-xl border border-mint-300/30 bg-mint-400/10 px-3 py-1 text-xs font-semibold text-mint-100">View</button>
                     </div>
                   ) : null;
                 })
@@ -2038,33 +2019,17 @@ export default function LumaPrimeMarketplace() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-fuchsia-300/15 bg-fuchsia-500/5 p-5 backdrop-blur">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-fuchsia-200">Current Bulletin</p>
-                <h2 className="mt-2 text-xl font-black text-white">Market updates and field notices</h2>
-              </div>
-              <span className="rounded-full border border-fuchsia-300/30 bg-fuchsia-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-fuchsia-100">Live feed</span>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {worldNotices.map((notice) => (
-                <WorldNoticeCard key={notice.title} badge={notice.badge} title={notice.title} copy={notice.copy} tone={notice.tone} />
-              ))}
-            </div>
-          </div>
         </section>
-
-        {!searchQuery && storefrontListings}
 
         {showCart ? (
           <div className="fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm" onClick={() => setShowCart(false)}>
-            <div className="absolute inset-y-0 right-0 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[#050815] p-5 shadow-2xl shadow-fuchsia-950/30" onClick={(event) => event.stopPropagation()}>
+            <div className="absolute inset-y-0 right-0 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[#07150f] p-5 shadow-2xl shadow-amber-950/30" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-cyan-300">Shopping Cart</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-mint-300">Shopping Cart</p>
                   <h2 className="mt-2 text-xl font-black text-white">Your current haul</h2>
                 </div>
-                <button type="button" onClick={() => setShowCart(false)} className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-100">
+                <button type="button" onClick={() => setShowCart(false)} aria-label="Close cart" className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-100">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -2104,11 +2069,11 @@ export default function LumaPrimeMarketplace() {
                               <Plus className="h-4 w-4" />
                             </button>
                           </div>
-                          <p className="text-sm font-semibold text-cyan-100">{formatCurrency(entry.unitPrice * entry.quantity)}</p>
+                          <p className="text-sm font-semibold text-mint-100">{formatCurrency(entry.unitPrice * entry.quantity)}</p>
                         </div>
                       </div>
                     ))}
-                    <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3">
+                    <div className="rounded-2xl border border-mint-300/20 bg-mint-400/10 p-3">
                       {hasPurchase && (
                         <div className="flex justify-between gap-2 text-sm text-slate-100">
                           <span>Purchase now</span><strong>{formatCurrency(purchaseTotal)}</strong>
@@ -2135,7 +2100,7 @@ export default function LumaPrimeMarketplace() {
                     {!profile && <p className="text-xs text-slate-300">Sign in to use your player cart and check out. This guest cart stays in this browser.</p>}
                     <div className="flex gap-2">
                       <button type="button" disabled={checkoutBusy} onClick={clearCart} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100">Clear cart</button>
-                      <button type="button" onClick={checkoutCart} disabled={checkoutBusy || !profile || (!cartReady && !retry)} className="flex-1 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50">{checkoutBusy ? "Processing..." : retry ? "Retry Checkout" : "Secure Checkout"}</button>
+                      <button type="button" onClick={checkoutCart} disabled={checkoutBusy || !profile || (!cartReady && !retry)} className="flex-1 rounded-xl border border-mint-300/40 bg-mint-400/15 px-3 py-2 text-sm font-semibold text-mint-100 disabled:opacity-50">{checkoutBusy ? "Processing..." : retry ? "Retry Checkout" : "Secure Checkout"}</button>
                     </div>
                   </div>
                 ) : (
