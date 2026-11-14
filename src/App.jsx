@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, ShoppingCart, Star, ShieldCheck, Sparkles, Leaf, AlertTriangle, CreditCard, Truck, Heart, Filter, ChevronRight, Plus, Minus, X, Coins } from "lucide-react";
 import { motion } from "framer-motion";
-import { marketplaceItems as items } from "./data/items";
+import { marketplaceItems as originalItems } from "./data/items";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, "");
@@ -40,6 +40,184 @@ function localFavorites(userId) {
 }
 
 
+const listingRarities = ["Common", "Uncommon", "Rare", "Very Rare", "Legendary", "Artifact"];
+
+function catalogItem(product, original = {}) {
+  const details = product.listing_details || {};
+  return {
+    subtitle: "", vendor: "", manufacturer: "", description: "", quote: "",
+    category: "General", attunement: "—", features: [], tags: [],
+    accent: "from-cyan-400 to-fuchsia-500",
+    ...original,
+    ...details,
+    id: product.product_id,
+    name: product.product_name,
+    price: Number(product.price),
+    rarity: original.rarity === "Platinum Curated Artifact Package" && product.rarity === "Artifact" ? original.rarity : product.rarity,
+    availability: product.stock_quantity === null ? "Unlimited stock" : product.stock_quantity > 0 ? `${product.stock_quantity} available` : "Sold out"
+  };
+}
+
+function ListingEditor({ product, original, onSave, onClose }) {
+  const [listingId] = useState(() => product?.product_id || `LP-${crypto.randomUUID()}`);
+  const [form, setForm] = useState(() => {
+    const item = product ? catalogItem(product, original) : {};
+    return {
+      name: item.name || "", category: item.category || "", subtitle: item.subtitle || "",
+      vendor: item.vendor || "", description: item.description || "",
+      image: item.image?.startsWith("https://") ? item.image : "",
+      rarity: product?.rarity || "Common", price: product ? String(product.price) : "",
+      stock: product?.stock_quantity == null ? "" : String(product.stock_quantity),
+      approval: product?.requires_dm_approval ?? false, active: product?.is_active ?? true
+    };
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const saving = useRef(false);
+  const rare = listingRarities.indexOf(form.rarity) >= 2;
+  const set = (field, value) => setForm((previous) => ({ ...previous, [field]: value }));
+
+  async function submit(event) {
+    event.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await onSave({
+        listing_id: listingId, expected_updated_at: product?.updated_at || null,
+        listing: { ...form, price: Number(form.price), stock: form.stock === "" ? null : Number(form.stock), approval: rare || form.approval }
+      });
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      saving.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className={`${accountCard} mt-3 space-y-3`} onSubmit={submit} aria-label={product ? "Edit listing" : "New listing"}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1">Listing name
+          <input className={accountInput} value={form.name} onChange={(event) => set("name", event.target.value)} required maxLength={120} />
+        </label>
+        <label className="grid gap-1">Category
+          <input className={accountInput} value={form.category} onChange={(event) => set("category", event.target.value)} maxLength={120} />
+        </label>
+        <label className="grid gap-1">Tagline
+          <input className={accountInput} value={form.subtitle} onChange={(event) => set("subtitle", event.target.value)} maxLength={160} />
+        </label>
+        <label className="grid gap-1">Vendor
+          <input className={accountInput} value={form.vendor} onChange={(event) => set("vendor", event.target.value)} maxLength={120} />
+        </label>
+        <label className="grid gap-1">Rarity
+          <select className={accountInput} value={form.rarity} onChange={(event) => set("rarity", event.target.value)}>
+            {listingRarities.map((rarity) => <option key={rarity}>{rarity}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1">Price in Lumina
+          <input className={accountInput} type="number" min="0" max="1000000000" step="1" value={form.price} onChange={(event) => set("price", event.target.value)} required />
+        </label>
+        <label className="grid gap-1">Available stock
+          <input className={accountInput} type="number" min="0" max="1000000" step="1" value={form.stock} onChange={(event) => set("stock", event.target.value)} required={rare} placeholder={rare ? "Enter quantity" : "Blank means unlimited"} />
+        </label>
+        <label className="grid gap-1">Product image URL
+          <input className={accountInput} type="url" maxLength={1200} value={form.image} onChange={(event) => set("image", event.target.value)} placeholder="https://…" />
+        </label>
+      </div>
+      <label className="grid gap-1">Description
+        <textarea className={accountInput} rows={4} maxLength={8000} value={form.description} onChange={(event) => set("description", event.target.value)} />
+      </label>
+      <div className="flex flex-wrap gap-4">
+        <label className="flex gap-2"><input type="checkbox" checked={rare || form.approval} disabled={rare} onChange={(event) => set("approval", event.target.checked)} /> Require DM approval</label>
+        <label className="flex gap-2"><input type="checkbox" checked={form.active} onChange={(event) => set("active", event.target.checked)} /> Visible in storefront</label>
+      </div>
+      {error && <p role="alert" className="text-rose-200">{error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <button className={accountButton} disabled={busy}>{busy ? "Saving…" : "Save listing"}</button>
+        <button type="button" className={accountButton} onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function WalletAdjustment({ player, onSave, onClose }) {
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const attempt = useRef(null);
+  const saving = useRef(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (saving.current) return;
+    const change = Number(amount);
+    const explanation = reason.trim();
+    if (!Number.isSafeInteger(change) || !change || !explanation) {
+      setNotice("Enter a nonzero whole amount and a reason.");
+      return;
+    }
+    if (attempt.current?.change !== change || attempt.current?.reason !== explanation) {
+      attempt.current = { id: crypto.randomUUID(), change, reason: explanation };
+    }
+    saving.current = true;
+    setBusy(true);
+    setNotice("");
+    try {
+      await onSave({
+        target_player: player.player_id, change_amount: change,
+        adjustment_reason: explanation, adjustment_id: attempt.current.id
+      });
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      saving.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className={`${accountCard} mt-3 space-y-3`}>
+      <h4 className="font-semibold">Adjust wallet for {player.player_name}</h4>
+      <label className="grid gap-1">Lumina change
+        <input className={accountInput} type="number" min="-1000000000" max="1000000000" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="100 to add or -100 to deduct" required />
+      </label>
+      <label className="grid gap-1">Adjustment reason
+        <input className={accountInput} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={240} required />
+      </label>
+      {notice && <p role="alert" className="text-rose-200">{notice}</p>}
+      <div className="flex gap-2">
+        <button className={accountButton} disabled={busy}>{busy ? "Saving…" : "Save adjustment"}</button>
+        <button type="button" className={accountButton} onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function OrderRefund({ order, busy, onRefund }) {
+  const [reason, setReason] = useState("");
+  const [restore, setRestore] = useState(false);
+  return (
+    <details className="mt-3">
+      <summary className="cursor-pointer text-rose-200">Refund purchase</summary>
+      <form className="mt-2 space-y-2" onSubmit={(event) => {
+        event.preventDefault();
+        if (reason.trim() && window.confirm(`Return ${formatCurrency(order.order_total)} to ${order.player_name}'s wallet?`)) {
+          onRefund(order.order_id, reason.trim(), restore);
+        }
+      }}>
+        <label className="grid gap-1">Refund reason
+          <input className={accountInput} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={240} required />
+        </label>
+        <label className="flex gap-2"><input type="checkbox" checked={restore} onChange={(event) => setRestore(event.target.checked)} /> Return items to limited stock when the original deduction is recorded</label>
+        <button className={accountButton} disabled={busy || !reason.trim()}>Confirm refund</button>
+      </form>
+    </details>
+  );
+}
+
 const deliveryLabels = {
   awaiting_delivery: "Awaiting dispatch",
   dispatched: "In transit",
@@ -75,7 +253,7 @@ function useMarketplaceList(load, initialPage = 0) {
 }
 
 function MyOrders({ token }) {
-  const load = useCallback((page) => marketplaceRpc(token, "marketplace_my_orders_with_tracking", { page_offset: page * 20 }), [token]);
+  const load = useCallback((page) => marketplaceRpc(token, "marketplace_my_orders_with_refunds", { page_offset: page * 20 }), [token]);
   const { rows, busy, error, page, setPage, refresh } = useMarketplaceList(load);
 
   return (
@@ -93,7 +271,8 @@ function MyOrders({ token }) {
             pending_approval: "Pending DM approval",
             completed: order.reviewed_at ? "Approved by DM" : "Completed",
             rejected: "Rejected",
-            cancelled: "Cancelled"
+            cancelled: "Cancelled",
+            refunded: "Refunded"
           }[order.order_status];
           return (
             <article key={order.order_id} className={accountCard}>
@@ -110,7 +289,7 @@ function MyOrders({ token }) {
                 ))}
               </ul>
               <p className="text-cyan-100">
-                {formatCurrency(order.order_total)} {order.order_status === "rejected" ? "returned to wallet" : order.order_status === "pending_approval" ? "reserved" : "order total"}
+                {formatCurrency(order.order_total)} {["rejected", "refunded"].includes(order.order_status) ? "returned to wallet" : order.order_status === "pending_approval" ? "reserved" : "order total"}
               </p>
               {order.delivery_status && (
                 <div className="mt-3 border-t border-white/10 pt-3">
@@ -438,6 +617,10 @@ function formatCurrency(value) {
   }).format(value)}`;
 }
 
+function normalizeSearch(value) {
+  return value.toLowerCase().replace(/[™’']/g, "").trim().replace(/\s+/g, " ");
+}
+
 function getPriceValue(item) {
   const value = Number(item.price);
   return Number.isFinite(value) ? value : 0;
@@ -459,7 +642,8 @@ function buildPlaceholderImage(item) {
   const bg1 = palette[seed % palette.length];
   const bg2 = palette[(seed + 3) % palette.length];
   const title = (item.name || "Unknown Item").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const subtitle = `${item.rarity || "Unknown"} • ${item.category || "Curio"}`;
+  const subtitle = `${item.rarity || "Unknown"} • ${item.category || "Curio"}`
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560">
@@ -488,7 +672,7 @@ function getItemDisplayImage(item) {
   return item.image.startsWith("/images/") ? buildPlaceholderImage(item) : item.image;
 }
 
-function getAllTags() {
+function getAllTags(items) {
   return Array.from(new Set(items.flatMap((item) => item.tags))).sort((a, b) => a.localeCompare(b));
 }
 
@@ -522,8 +706,10 @@ const financingRules = {
 };
 
 export default function LumaPrimeMarketplace() {
-  const [selectedId, setSelectedId] = useState(items[0].id);
+  const [selectedId, setSelectedId] = useState(originalItems[0].id);
   const [query, setQuery] = useState("");
+  const [searchSelectionId, setSearchSelectionId] = useState(null);
+  const listingPanel = useRef(null);
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ username: "", email: "", password: "", confirmPassword: "" });
   const [sessionToken, setSessionToken] = useState(() => (typeof window === "undefined" ? null : localStorage.getItem("luma-prime-token")));
@@ -538,6 +724,11 @@ export default function LumaPrimeMarketplace() {
   const [dmTransactions, setDmTransactions] = useState([]);
   const [dmOrders, setDmOrders] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [editingListing, setEditingListing] = useState(null);
+  const [adjustingPlayer, setAdjustingPlayer] = useState(null);
+  const [dmCommerceNotice, setDmCommerceNotice] = useState("");
+  const [dmWalletNotice, setDmWalletNotice] = useState("");
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState(null);
   const checkoutInProgress = useRef(false);
@@ -614,7 +805,6 @@ export default function LumaPrimeMarketplace() {
 
     return "Ready to finance";
   });
-  const selected = items.find((item) => item.id === selectedId) || items[0];
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -666,26 +856,62 @@ export default function LumaPrimeMarketplace() {
     );
   }, [profile]);
 
+  const items = useMemo(() => {
+    if (!inventoryLoaded) return originalItems;
+    const originals = new Map(originalItems.map((item) => [item.id, item]));
+    const products = new Map(inventory.map((product) => [product.product_id, product]));
+    const orderedProducts = [
+      ...originalItems.map((item) => products.get(item.id)).filter(Boolean),
+      ...inventory.filter((product) => !originals.has(product.product_id))
+    ];
+    return orderedProducts.filter((product) => product.is_active)
+      .map((product) => catalogItem(product, originals.get(product.product_id)));
+  }, [inventory, inventoryLoaded]);
+  const searchQuery = normalizeSearch(query);
+  const matches = useMemo(() => {
+    const matchingItems = [];
+    for (const item of items) {
+      if (selectedTag !== "All" && !item.tags.includes(selectedTag)) continue;
+      if (selectedRarity !== "All" && item.rarity !== selectedRarity) continue;
+
+      const name = normalizeSearch(item.name);
+      const searchableText = normalizeSearch([item.name, item.category, item.rarity, item.vendor, ...item.tags].join(" "));
+      if (searchQuery && !searchableText.includes(searchQuery)) continue;
+
+      let rank = 3;
+      if (name === searchQuery) rank = 0;
+      else if (name.startsWith(searchQuery)) rank = 1;
+      else if (name.includes(searchQuery)) rank = 2;
+      matchingItems.push({ item, rank });
+    }
+
+    return matchingItems.sort((first, second) => first.rank - second.rank).map(({ item }) => item);
+  }, [items, searchQuery, selectedTag, selectedRarity]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const nextItems = items.filter((item) => {
-      const haystack = [item.name, item.category, item.rarity, item.vendor, ...item.tags].join(" ").toLowerCase();
-      const matchesQuery = !q || haystack.includes(q);
-      const matchesTag = selectedTag === "All" || item.tags.includes(selectedTag);
-      const matchesRarity = selectedRarity === "All" || item.rarity === selectedRarity;
-      return matchesQuery && matchesTag && matchesRarity;
-    });
+    if (sortMode === "price-low") return [...matches].sort((a, b) => getPriceValue(a) - getPriceValue(b));
+    if (sortMode === "price-high") return [...matches].sort((a, b) => getPriceValue(b) - getPriceValue(a));
+    return matches;
+  }, [matches, sortMode]);
 
-    if (sortMode === "price-low") {
-      return [...nextItems].sort((a, b) => getPriceValue(a) - getPriceValue(b));
+  const selected = searchQuery
+    ? matches.find((item) => item.id === searchSelectionId) || matches[0]
+    : items.find((item) => item.id === selectedId) || items[0];
+
+  function updateSearch(value) {
+    setQuery(value);
+    setSearchSelectionId(null);
+    setShowFinancingPage(false);
+  }
+
+  function openListing(itemId) {
+    if (searchQuery && matches.some((item) => item.id === itemId)) {
+      setSearchSelectionId(itemId);
+    } else {
+      updateSearch("");
+      setSelectedId(itemId);
     }
-
-    if (sortMode === "price-high") {
-      return [...nextItems].sort((a, b) => getPriceValue(b) - getPriceValue(a));
-    }
-
-    return nextItems;
-  }, [query, selectedTag, selectedRarity, sortMode]);
+  }
 
   const isFavorite = (itemId) => favorites.includes(itemId);
   const badgeList = useMemo(() => deriveBadges(profile, favorites.length), [profile, favorites.length]);
@@ -715,7 +941,7 @@ export default function LumaPrimeMarketplace() {
   const cartReady = cartLines.every(({ product, quantity }) =>
     product?.is_active && (product.stock_quantity === null || quantity <= product.stock_quantity)
   );
-  const tagOptions = ["All", ...getAllTags()];
+  const tagOptions = ["All", ...getAllTags(items)];
   const rarityOptions = ["All", ...Array.from(new Set(items.map((item) => item.rarity)))];
   const current = { ...(players[0] || defaultPlayer), wallet: walletBalance ?? 0 };
   const unlocked = Boolean(current);
@@ -768,7 +994,7 @@ export default function LumaPrimeMarketplace() {
       });
     }
 
-    if (selected.category.includes("Healing") || selected.tags.includes("Rest") || selected.tags.includes("Wellness")) {
+    if (selected && (selected.category.includes("Healing") || selected.tags.includes("Rest") || selected.tags.includes("Wellness"))) {
       notices.push({
         badge: "Public Notice",
         title: `Recovery demand for ${selected.name}`,
@@ -788,7 +1014,7 @@ export default function LumaPrimeMarketplace() {
 
     const unique = Array.from(new Map(notices.map((notice) => [notice.title, notice])).values());
     return unique.slice(0, 3);
-  }, [cartCount, current.wallet, financedItems.length, favorites.length, profile, selected.category, selected.name, selected.tags]);
+  }, [cartCount, current.wallet, financedItems.length, favorites.length, profile, selected]);
 
   const adjustWalletBalance = (delta) => {
     setPlayers((prev) =>
@@ -1053,6 +1279,10 @@ export default function LumaPrimeMarketplace() {
     setDmOrders([]);
     setDmTransactions([]);
     setDmOrderError("");
+    setDmCommerceNotice("");
+    setDmWalletNotice("");
+    setEditingListing(null);
+    setAdjustingPlayer(null);
     setWishLoaded(false);
     if (sessionToken) {
       try { await supabaseRequest("/auth/v1/logout", { method: "POST", token: sessionToken }); }
@@ -1089,8 +1319,11 @@ export default function LumaPrimeMarketplace() {
 
   const loadInventory = async () => {
     try {
-      const rows = await supabaseRequest("/rest/v1/marketplace_inventory?select=product_id,product_name,rarity,price,stock_quantity,requires_dm_approval,is_active&order=product_name.asc");
-      if (Array.isArray(rows)) setInventory(rows);
+      const rows = await supabaseRequest("/rest/v1/marketplace_inventory?select=product_id,product_name,rarity,price,stock_quantity,requires_dm_approval,is_active,listing_details,updated_at&order=product_name.asc");
+      if (Array.isArray(rows)) {
+        setInventory(rows);
+        setInventoryLoaded(true);
+      }
     } catch (error) {
       setStatus({ message: `Could not load inventory: ${error.message}`, tone: "warning" });
     }
@@ -1103,7 +1336,7 @@ export default function LumaPrimeMarketplace() {
     try {
       const [transactions, orders] = await Promise.all([
         supabaseRequest("/rest/v1/rpc/dm_list_transactions", { method: "POST", token: sessionToken, body: {} }),
-        marketplaceRpc(sessionToken, "dm_marketplace_orders_with_tracking")
+        marketplaceRpc(sessionToken, "dm_marketplace_orders_with_refunds")
       ]);
       if (accountToken.current !== sessionToken) return;
       setDmTransactions(transactions);
@@ -1114,23 +1347,48 @@ export default function LumaPrimeMarketplace() {
     } finally { setDmBusy(false); }
   };
 
-  const updateDmInventory = async (product) => {
-    const answer = window.prompt(`Stock for ${product.product_name} (leave blank for unlimited):`, product.stock_quantity ?? "");
-    if (answer === null) return;
-    const stock = answer.trim() === "" ? null : Number(answer.trim());
-    if (stock !== null && (!Number.isSafeInteger(stock) || stock < 0 || stock > 1000000)) {
-      setStatus({ message: "Enter a nonnegative whole stock quantity or leave blank for unlimited.", tone: "warning" }); return;
-    }
-    const approval = window.confirm(`Require DM approval for ${product.product_name}? Click OK for yes, Cancel for no.`);
-    const active = window.confirm(`Keep ${product.product_name} listed for sale? Click OK for yes, Cancel to hide.`);
+  const saveListing = async (details) => {
+    await marketplaceRpc(sessionToken, "dm_marketplace_save_listing", details);
+    if (accountToken.current !== sessionToken) return;
+    setEditingListing(null);
+    setDmCommerceNotice(`Saved ${details.listing.name.trim()}.`);
+    await loadInventory();
+  };
+
+  const adjustPlayerWallet = async (details) => {
+    const balance = await marketplaceRpc(sessionToken, "dm_marketplace_adjust_wallet", details);
+    if (accountToken.current !== sessionToken) return;
+    if (details.target_player === profile.id) setWalletBalance(balance);
+    setDmPlayers((players) => players.map((player) =>
+      player.player_id === details.target_player ? { ...player, balance } : player
+    ));
+    setAdjustingPlayer(null);
+    setDmWalletNotice(`Wallet updated to ${formatCurrency(balance)}.`);
+    await loadDmCommerce();
+  };
+
+  const refundOrder = async (orderId, reason, restoreStock) => {
+    if (dmBusy || !isDmAdmin || !sessionToken) return;
     setDmBusy(true);
+    setDmOrderError("");
+    setDmCommerceNotice("");
     try {
-      await supabaseRequest("/rest/v1/rpc/dm_set_marketplace_inventory", { method: "POST", token: sessionToken,
-        body: { target_product: product.product_id, new_stock: stock, needs_approval: approval, is_listed: active } });
-      await loadInventory();
-      setStatus({ message: `Updated ${product.product_name}.`, tone: "success" });
-    } catch (error) { setStatus({ message: `Inventory update failed: ${error.message}`, tone: "warning" }); }
-    finally { setDmBusy(false); }
+      await marketplaceRpc(sessionToken, "dm_marketplace_refund_order", {
+        target_order: orderId, reason_text: reason, restore_stock: restoreStock
+      });
+      if (accountToken.current !== sessionToken) return;
+      setDmOrders((orders) => orders.map((order) => order.order_id === orderId
+        ? { ...order, order_status: "refunded", refund_reason: reason } : order
+      ));
+      setOrdersRevision((revision) => revision + 1);
+      setDmCommerceNotice("Purchase refunded to the player’s wallet.");
+      await loadDmCommerce();
+      if (dmPlayers.length) await loadDmPlayers();
+    } catch (error) {
+      if (accountToken.current === sessionToken) setDmOrderError(error.message);
+    } finally {
+      setDmBusy(false);
+    }
   };
 
   const reviewDmOrder = async (orderId, approve) => {
@@ -1373,7 +1631,15 @@ export default function LumaPrimeMarketplace() {
           <div className="flex flex-1 items-center gap-3 md:max-w-md">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search relics, vendors, categories..." className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60" />
+              <input
+                type="search"
+                aria-label="Search marketplace"
+                value={query}
+                onChange={(event) => updateSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && searchQuery) listingPanel.current?.scrollIntoView({ block: "start" });
+                }}
+                placeholder="Search relics, vendors, categories..." className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60" />
             </div>
             <button
               type="button"
@@ -1572,33 +1838,60 @@ export default function LumaPrimeMarketplace() {
                 <button type="button" disabled={dmBusy} onClick={loadDmCommerce} className="rounded-xl border border-amber-300/40 px-4 py-2 text-sm text-amber-100">{dmBusy ? "Working..." : "Load / Refresh Commerce"}</button>
               </div>
               {dmOrderError && <p role="alert" className="text-sm text-rose-200">{dmOrderError}</p>}
+              {dmCommerceNotice && <p role="status" className="text-sm text-emerald-200">{dmCommerceNotice}</p>}
               {dmOrders.length > 0 && <div className="space-y-2"><h4 className="font-semibold text-amber-100">Orders</h4>{dmOrders.map((o) => <div key={o.order_id} className="rounded-xl border border-white/10 p-3 text-sm text-white">
                 <div className="flex flex-wrap justify-between gap-2"><span>{o.player_name} — {formatCurrency(o.order_total)}</span><span>{o.order_status}</span></div>
                 <p className="text-xs text-slate-300">{o.order_items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
                 {o.order_status === "completed" && (
-                  <DeliveryEditor key={`${o.order_id}-${o.delivery_status}-${o.delivery_estimate}`} order={o} busy={dmBusy} onSave={updateDelivery} />
+                  <>
+                    <DeliveryEditor key={`${o.order_id}-${o.delivery_status}-${o.delivery_estimate}`} order={o} busy={dmBusy} onSave={updateDelivery} />
+                    <OrderRefund order={o} busy={dmBusy} onRefund={refundOrder} />
+                  </>
                 )}
+                {o.refund_reason && <p className="mt-2 text-sm text-slate-300">Refund reason: {o.refund_reason}</p>}
                 {o.order_status === "pending_approval" && <div className="mt-2 flex gap-2"><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,true)} className="rounded-lg border border-emerald-300/50 px-3 py-1">Approve</button><button disabled={dmBusy} onClick={() => reviewDmOrder(o.order_id,false)} className="rounded-lg border border-rose-300/50 px-3 py-1">Reject & Refund</button></div>}
               </div>)}</div>}
-              {inventory.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Inventory — select Edit to set stock and approval</h4><div className="max-h-64 space-y-1 overflow-y-auto">{inventory.map((p) => <div key={p.product_id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-2 text-xs text-white"><span>{p.product_name} — {p.stock_quantity === null ? "Unlimited" : `${p.stock_quantity} left`} {p.requires_dm_approval ? "• Approval" : ""} {!p.is_active ? "• Hidden" : ""}</span><button disabled={dmBusy} onClick={() => updateDmInventory(p)} className="rounded border border-amber-300/40 px-2 py-1">Edit</button></div>)}</div></div>}
-              {dmTransactions.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Recent Transactions</h4><div className="max-h-64 space-y-1 overflow-y-auto">{dmTransactions.map((t) => <div key={t.transaction_id} className="flex justify-between gap-2 border-b border-white/10 py-2 text-xs text-slate-200"><span>{t.player_name} • {t.transaction_type} • {new Date(t.created_at).toLocaleString()}</span><span>{formatCurrency(t.amount)}</span></div>)}</div></div>}
+              <section className="space-y-2" aria-label="Manage listings">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="font-semibold text-amber-100">Manage listings</h4>
+                  <button type="button" className={accountButton} onClick={() => setEditingListing({})} disabled={Boolean(editingListing)}>Add listing</button>
+                </div>
+                {editingListing && (
+                  <ListingEditor key={editingListing.product_id || "new"} product={editingListing.product_id ? editingListing : null}
+                    original={originalItems.find((item) => item.id === editingListing.product_id)}
+                    onSave={saveListing} onClose={() => setEditingListing(null)} />
+                )}
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                  {inventory.map((product) => (
+                    <div key={product.product_id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-2 text-sm">
+                      <span>{product.product_name} · {formatCurrency(product.price)} · {product.stock_quantity === null ? "Unlimited" : `${product.stock_quantity} left`}{product.requires_dm_approval ? " · Approval" : ""}{product.is_active ? "" : " · Hidden"}</span>
+                      <button type="button" className={accountButton} onClick={() => setEditingListing(product)} disabled={Boolean(editingListing)} aria-label={`Edit ${product.product_name}`}>Edit</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              {dmTransactions.length > 0 && <div><h4 className="mb-2 font-semibold text-amber-100">Recent Transactions</h4><div className="max-h-64 space-y-1 overflow-y-auto">{dmTransactions.map((t) => <div key={t.transaction_id} className="flex justify-between gap-2 border-b border-white/10 py-2 text-xs text-slate-200"><div><p>{t.player_name} · {t.transaction_type === "dm_adjustment" ? "Wallet adjustment" : t.transaction_type} · {new Date(t.created_at).toLocaleString()}</p>{t.description && <p className="mt-1 text-slate-300">{t.description}</p>}</div><span>{formatCurrency(t.amount)}</span></div>)}</div></div>}
             </div>
             <div className="mt-6 border-t border-white/10 pt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-bold text-white">Player Management</h3>
-                  <p className="mt-1 text-xs text-slate-300">Read-only list of registered players and their current Lumina balances.</p>
+                  <p className="mt-1 text-xs text-slate-300">View player balances and record corrections.</p>
                 </div>
                 <button type="button" onClick={loadDmPlayers} disabled={loadingDmPlayers} className="rounded-xl border border-amber-300/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50">
                   {loadingDmPlayers ? "Loading..." : dmPlayers.length ? "Refresh players" : "Load players"}
                 </button>
               </div>
+              {dmWalletNotice && <p role="status" className="mt-2 text-sm text-emerald-200">{dmWalletNotice}</p>}
+              {adjustingPlayer && (
+                <WalletAdjustment key={adjustingPlayer.player_id} player={adjustingPlayer} onSave={adjustPlayerWallet} onClose={() => setAdjustingPlayer(null)} />
+              )}
               {dmPlayersError ? <p role="alert" className="mt-3 text-sm text-rose-300">Could not load players: {dmPlayersError}</p> : null}
               {dmPlayers.length ? (
                 <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
                   <table className="w-full min-w-[440px] text-left text-sm">
                     <thead className="bg-white/10 text-xs uppercase tracking-wider text-amber-100">
-                      <tr><th className="px-3 py-3">Player</th><th className="px-3 py-3">Lumina</th><th className="px-3 py-3">Joined</th></tr>
+                      <tr><th className="px-3 py-3">Player</th><th className="px-3 py-3">Lumina</th><th className="px-3 py-3">Joined</th><th className="px-3 py-3">Wallet</th></tr>
                     </thead>
                     <tbody className="divide-y divide-white/10 text-slate-100">
                       {dmPlayers.map((player) => (
@@ -1606,6 +1899,10 @@ export default function LumaPrimeMarketplace() {
                           <td className="px-3 py-3">{player.player_name || "Adventurer"}</td>
                           <td className="px-3 py-3 font-semibold">{Number(player.balance).toLocaleString()} Lumina</td>
                           <td className="px-3 py-3">{player.joined_at ? new Date(player.joined_at).toLocaleDateString() : "—"}</td>
+                          <td className="px-3 py-3"><button type="button" className={accountButton} disabled={Boolean(adjustingPlayer)} onClick={() => {
+                            setDmWalletNotice("");
+                            setAdjustingPlayer(player);
+                          }}>Adjust</button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -1715,7 +2012,7 @@ export default function LumaPrimeMarketplace() {
                         <p className="text-sm font-semibold text-white">{item.name}</p>
                         <p className="text-xs text-slate-300">{formatCurrency(getPriceValue(item))}</p>
                       </div>
-                      <button onClick={() => setSelectedId(item.id)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">View</button>
+                      <button onClick={() => openListing(item.id)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">View</button>
                     </div>
                   ) : null;
                 })
@@ -1751,12 +2048,12 @@ export default function LumaPrimeMarketplace() {
                     <ProductCard
                       key={item.id}
                       item={item}
-                      selected={item.id === selected.id}
+                      selected={item.id === selected?.id}
                       isFavorite={isFavorite(item.id)}
                       onToggleFavorite={handleToggleFavorite}
                       favoriteDisabled={favoriteBusy || Boolean(profile && !wishLoaded)}
                       onAddToCart={addToCart}
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => openListing(item.id)}
                       className="w-56 flex-none snap-start"
                     />
                   ))}
@@ -1779,7 +2076,15 @@ export default function LumaPrimeMarketplace() {
             </div>
           </aside>
 
-          {showFinancingPage ? (
+          {!selected ? (
+            <section ref={listingPanel} className="self-start rounded-[2rem] border border-cyan-300/15 bg-black/35 p-6" role="status">
+              <h2 className="text-xl font-bold text-white">{searchQuery ? "No matching listings" : "No listings available"}</h2>
+              {searchQuery && <>
+                <p className="mt-2 text-sm text-slate-300">Try a different search or adjust your filters.</p>
+                <button type="button" className={`mt-4 ${accountButton}`} onClick={() => updateSearch("")}>Clear search</button>
+              </>}
+            </section>
+          ) : showFinancingPage ? (
             <motion.section key={`finance-${selected.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
               <div className="p-6 sm:p-8">
                 <button
@@ -1903,7 +2208,7 @@ export default function LumaPrimeMarketplace() {
               </div>
             </motion.section>
           ) : (
-            <motion.section key={selected.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
+            <motion.section ref={listingPanel} key={selected.id} aria-label="Product details" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full min-w-0 overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-black/35 shadow-2xl shadow-fuchsia-950/20 backdrop-blur">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
                 {/* Left: Large Product Image */}
                 <div className="relative flex flex-col items-center justify-center bg-gradient-to-br from-black/80 to-slate-900/80 p-8 min-h-[600px]">
@@ -2011,7 +2316,7 @@ export default function LumaPrimeMarketplace() {
                     <div className="flex items-center gap-1 text-amber-300">
                       {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
                     </div>
-                    <span className="text-xs text-slate-300">{selected.rating} verified rating</span>
+                    <span className="text-xs text-slate-300">{selected.rating ? `${selected.rating} verified rating` : "No ratings yet"}</span>
                   </div>
                 </div>
               </div>
