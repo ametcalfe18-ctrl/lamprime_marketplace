@@ -3,6 +3,11 @@ import { Search, ShoppingCart, Star, ShieldCheck, Leaf, AlertTriangle, Truck, He
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { marketplaceItems as originalItems } from "./data/items";
+import waveLogo from "./assets/lumaprime/liquid-light-logo.webp";
+import coinArtwork from "./assets/lumaprime/coin.webp";
+import braceletArtwork from "./assets/lumaprime/bracelets.webp";
+import peepholeArtwork from "./assets/lumaprime/peephole.webp";
+import puppyArtwork from "./assets/lumaprime/puppies.webp";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, "");
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -623,7 +628,7 @@ function ProductCard({ item, selected, onClick, isFavorite, onToggleFavorite, fa
   return (
     <article className={`catalog-card ${selected ? "catalog-card-selected" : ""}`}>
       <button type="button" className="catalog-image" onClick={onClick} aria-label={`View ${item.name}`} aria-pressed={selected}>
-        <img src={getItemDisplayImage(item)} alt="" loading="lazy" width="288" height="180" />
+        <ListingImage item={item} alt="" loading="lazy" width="288" height="180" />
       </button>
       <button type="button" onClick={() => onToggleFavorite(item.id)} disabled={favoriteDisabled} aria-label={isFavorite ? `Remove ${item.name} from Wish Vault` : `Save ${item.name} to Wish Vault`} className="catalog-heart">
         <Heart size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
@@ -735,16 +740,24 @@ function buildPlaceholderImage(item) {
   `)}`;
 }
 
-function getItemDisplayImage(item) {
-  if (item?.image && !item.image.startsWith("/images/")) return item.image;
+const listingArtwork = {
+  "LP-COIN-0001": coinArtwork,
+  "LP-BRACELET-0002": braceletArtwork,
+  "LP-PEEPHOLE-0003": peepholeArtwork,
+  "LP-PUPPY-0004": puppyArtwork
+};
 
-  const artwork = {
-    "LP-COIN-0001": "coin",
-    "LP-BRACELET-0002": "bracelets",
-    "LP-PEEPHOLE-0003": "peephole",
-    "LP-PUPPY-0004": "puppies"
-  }[item.id];
-  return artwork ? `/lumaprime/${artwork}.webp` : buildPlaceholderImage(item);
+function ListingImage({ item, ...props }) {
+  const bundledArtwork = listingArtwork[item.id];
+  const suppliedImage = item.image && !item.image.startsWith("/images/") ? item.image : null;
+  return <img {...props} src={suppliedImage || bundledArtwork || buildPlaceholderImage(item)} onError={({ currentTarget }) => {
+    const failedSource = currentTarget.getAttribute("src");
+    if (failedSource === suppliedImage && bundledArtwork && bundledArtwork !== failedSource) {
+      currentTarget.src = bundledArtwork;
+    } else if (!failedSource?.startsWith("data:image/svg+xml")) {
+      currentTarget.src = buildPlaceholderImage(item);
+    }
+  }} />;
 }
 
 function getAllTags(items) {
@@ -1448,7 +1461,7 @@ export default function LumaPrimeMarketplace() {
             {/* Left: Large Product Image */}
             <div className="product-detail-art">
               <div className="relative w-full max-w-md aspect-[1.1/1] rounded-3xl overflow-hidden border-2 border-mint-300/20 shadow-lg">
-                <img src={getItemDisplayImage(selected)} alt={selected.name} className="w-full h-full object-cover" />
+                <ListingImage item={selected} alt={selected.name} className="w-full h-full object-cover" />
                 <div className={`absolute inset-0 bg-gradient-to-t ${selected.accent} opacity-30`} />
               </div>
               <div className="mt-6 flex flex-wrap gap-2 justify-center">
@@ -1597,7 +1610,7 @@ export default function LumaPrimeMarketplace() {
       <main className="store-main">
         <header className="store-header">
           <a className="store-brand" href="#" aria-label="LumaPrime home" onClick={() => updateSearch("")}>
-            <img src="/lumaprime/liquid-light-logo.webp" alt="" width="84" height="54" />
+            <img src={waveLogo} alt="" width="84" height="54" />
             <span className="store-wordmark">LUMA<em>PRIME</em></span>
           </a>
 
