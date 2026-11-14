@@ -1789,7 +1789,7 @@ export default function LumaPrimeMarketplace() {
         <header className="store-header">
           <a className="store-brand" href="/" aria-label="LumaPrime home" onClick={(event) => openCatalogLink(event, () => navigateStore("/"))}>
             <img src={waveLogo} alt="" width="84" height="54" />
-            <span className="store-wordmark">LUMA<em>PRIME</em><img className="wordmark-ribbon" src={waveLogo} alt="" aria-hidden="true" /></span>
+            <span className="store-wordmark">LUMA<em>PRIME</em></span>
           </a>
 
           <div className="store-search">

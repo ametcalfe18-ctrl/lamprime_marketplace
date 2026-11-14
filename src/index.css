@@ -79,10 +79,9 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 }
 
 .store-brand { display: inline-flex; align-items: center; gap: 0; text-decoration: none; }
-.store-brand > img { width: 82px; height: 54px; margin-right: -8px; object-fit: contain; transform: scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
-.store-wordmark { position: relative; isolation: isolate; white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; }
+.store-brand > img { width: 82px; height: 54px; margin-right: -28px; object-fit: contain; transform: translateY(-5px) scaleX(-1); filter: drop-shadow(0 0 10px #37df8540); }
+.store-wordmark { position: relative; white-space: nowrap; font-size: clamp(.97rem, 1.55vw, 1.4rem); font-weight: 800; letter-spacing: .09em; color: #fff5dd; text-shadow: 0 1px 3px #0b1d15; }
 .store-wordmark em { color: var(--gold); font-style: normal; }
-.wordmark-ribbon { position: absolute; z-index: -1; pointer-events: none; bottom: -45%; left: -5%; width: 109%; height: 98%; max-width: none; object-fit: fill; opacity: .64; filter: drop-shadow(0 0 6px #54e58975); mask-image: linear-gradient(90deg, transparent, #000 17%, #000 78%, transparent); }
 .store-search { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .store-search-input {
   width: 100%;
@@ -304,7 +303,7 @@ h1, h2, .store-wordmark { font-family: var(--display-font); }
 @media (max-width: 630px) {
   .store-main { width: calc(100% - 24px); padding-top: 12px; }
   .store-header { grid-template-columns: minmax(0, 1fr) auto; padding: 9px 10px; gap: 8px; margin-bottom: 12px; }
-  .store-brand > img { width: 53px; height: 38px; margin-right: -5px; }
+  .store-brand > img { width: 53px; height: 38px; margin-right: -17px; transform: translateY(-3px) scaleX(-1); }
   .store-search { grid-column: 1 / -1; grid-row: 2; }
   .store-account { grid-column: 2; grid-row: 1; }
   .store-account-toggle { max-width: 112px; min-height: 38px; font-size: .78rem; }
